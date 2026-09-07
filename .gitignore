@@ -1,0 +1,46 @@
+# Bağımlılıklar
+node_modules/
+
+# Derleme çıktısı
+dist/
+*.tsbuildinfo
+
+# Test ve kapsam
+coverage/
+.vitest/
+
+# npm pack çıktısı
+*.tgz
+
+# Günlükler
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Anahtar malzemesi. Bu depoya YALNIZCA test amaçlı, betikle üretilen
+# sertifikalar girer (bkz. scripts/gen-test-keys.sh — ürettiği her şey
+# fixtures/generated/ altına düşer ve o dizin de yok sayılır).
+# Gerçek bir mali mühür ya da NES anahtarı asla commit edilmemeli:
+# özel anahtar bir kez depoya girerse geçmişten silinmesi güvenilir değildir,
+# sertifikanın iptali gerekir.
+*.p12
+*.pfx
+*.jks
+*.key
+*-private.pem
+*.local.xml
+fixtures/private/
+fixtures/generated/
+
+# Ortam değişkenleri
+.env
+.env.*
+!.env.example
+
+# Editör ve işletim sistemi
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

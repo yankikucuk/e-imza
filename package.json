@@ -1,0 +1,142 @@
+{
+  "name": "@yankikucuk/e-imza",
+  "version": "0.1.0",
+  "description": "XAdES elektronik imza için sıfır bağımlılıklı TypeScript kütüphanesi — kanonikleştirme, PKCS#12, imzalama, doğrulama",
+  "keywords": [
+    "xades",
+    "xades-bes",
+    "xades-epes",
+    "xades-t",
+    "xmldsig",
+    "xml-signature",
+    "xml-dsig",
+    "digital-signature",
+    "elektronik-imza",
+    "e-imza",
+    "eimza",
+    "mali-muhur",
+    "mali-mühür",
+    "nes",
+    "kamusm",
+    "tubitak",
+    "gib",
+    "e-fatura",
+    "efatura",
+    "e-arsiv",
+    "e-irsaliye",
+    "ubl-tr",
+    "ubl",
+    "c14n",
+    "canonicalization",
+    "exc-c14n",
+    "pkcs12",
+    "pkcs7",
+    "pfx",
+    "p12",
+    "x509",
+    "asn1",
+    "der",
+    "rsa",
+    "ecdsa",
+    "rfc3161",
+    "timestamp",
+    "zaman-damgasi",
+    "etsi",
+    "eidas",
+    "smartcard",
+    "hsm",
+    "typescript",
+    "nodejs",
+    "zero-dependency",
+    "turkey",
+    "turkiye",
+    "türkiye",
+    "tr"
+  ],
+  "license": "MIT",
+  "author": "Yankı Küçük",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yankikucuk/e-imza.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yankikucuk/e-imza/issues"
+  },
+  "homepage": "https://github.com/yankikucuk/e-imza#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "knip": "knip",
+    "check:publish": "publint",
+    "check:types": "attw --pack .",
+    "prepublishOnly": "npm run build",
+    "prepare": "simple-git-hooks >/dev/null 2>&1 || true"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.4.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-import-resolver-typescript": "4.4.5",
+    "eslint-plugin-import-x": "4.17.1",
+    "knip": "6.34.0",
+    "lint-staged": "17.4.1",
+    "prettier": "3.9.6",
+    "publint": "0.3.24",
+    "simple-git-hooks": "2.14.0",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.69.0",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yml}": "prettier --write",
+    "*.ts": "eslint --fix"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}
