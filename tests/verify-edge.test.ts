@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
+import { canonicalizeToBytes } from '../src/c14n/canonicalize.js'
+import { toBase64 } from '../src/core/bytes.js'
 import { VerificationError } from '../src/core/errors.js'
 import { loadPkcs12 } from '../src/pki/pkcs12.js'
 import { sign } from '../src/sign.js'
 import { verify } from '../src/verify.js'
+import { digest } from '../src/xades/signature.js'
+import { walkElements } from '../src/xml/node.js'
+import { parseXml } from '../src/xml/parse.js'
 
 import { canGenerateKeyMaterial, keyMaterial } from './key-material.js'
 
@@ -133,6 +138,72 @@ describe.skipIf(!canGenerateKeyMaterial())('bozuk imza yapıları', () => {
 
   it('olmayan imza kimliği hata fırlatır', () => {
     expect(() => verify(signed(), { signatureId: 'yok' })).toThrow(VerificationError)
+  })
+})
+
+describe.skipIf(!canGenerateKeyMaterial())('örtük kanonikleştirme', () => {
+  /**
+   * XMLDSig §4.3.3.2: dönüşümü olmayan bir aynı-belge referansı, örtük
+   * olarak **kapsayıcı** Canonical XML 1.0 ile işlenir —
+   * `ds:CanonicalizationMethod` ne derse desin.
+   *
+   * Kendi ürettiğimiz imzalarda dönüşüm her zaman AÇIKÇA yazılır, bu yüzden
+   * bu yol kendi çıktımızla hiç sınanmaz. Ama başkasının imzasını
+   * doğrularken tam olarak buraya girilir: dönüşümü yazmayan üreticiler var
+   * ve varsayılanı `SignedInfo`'nunkiyle karıştıran bir doğrulayıcı onların
+   * geçerli imzalarını reddeder.
+   *
+   * Test şöyle ayırt ediyor: imza `exc-c14n` ile atılıyor, ardından
+   * `SignedProperties` referansının dönüşümü SİLİNİP özeti **c14n10** ile
+   * yeniden hesaplanıyor. Doğru uygulama örtük varsayılanı c14n10 kabul
+   * ettiği için referans TUTAR (imza değeri, SignedInfo değiştiği için
+   * tutmaz — beklenen de bu). Varsayılanı exc-c14n sanan bir uygulamada
+   * ise referansın kendisi düşer.
+   */
+  it('dönüşümsüz aynı-belge referansı kapsayıcı c14n ile işlenir', () => {
+    const { modernRsa } = keyMaterial()
+    const bundle = loadPkcs12(modernRsa.p12, modernRsa.password)
+    const signed = sign({
+      xml: UBL,
+      signer: { certificate: bundle.certificate },
+      privateKey: bundle.privateKey,
+      canonicalization: 'exc-c14n',
+    })
+
+    // `SignedProperties` alt ağacının KAPSAYICI kanonik özeti.
+    const document = parseXml(signed)
+    const properties = [...walkElements(document.root)].find(
+      (element) => element.localName === 'SignedProperties',
+    )
+    expect(properties).toBeDefined()
+    if (properties === undefined) return
+    const inclusiveDigest = toBase64(
+      digest('SHA-256', canonicalizeToBytes(document, { algorithm: 'c14n10', subset: properties })),
+    )
+
+    // Referanstan dönüşüm bloğunu sil ve özeti kapsayıcı değerle değiştir.
+    const reference =
+      /<ds:Reference Type="http:\/\/uri\.etsi\.org\/01903#SignedProperties"[\s\S]*?<\/ds:Reference>/.exec(
+        signed,
+      )?.[0]
+    expect(reference).toBeDefined()
+    if (reference === undefined) return
+    const rewritten = reference
+      .replace(/<ds:Transforms>[\s\S]*?<\/ds:Transforms>/, '')
+      .replace(
+        /<ds:DigestValue>[^<]*<\/ds:DigestValue>/,
+        `<ds:DigestValue>${inclusiveDigest}</ds:DigestValue>`,
+      )
+    const patched = signed.replace(reference, rewritten)
+    expect(patched).not.toBe(signed)
+
+    const result = verify(patched)
+    // İmza değeri tutmaz — SignedInfo elle değiştirildi. Ama referansların
+    // HEPSİ geçerli olmalı: örtük varsayılan doğru uygulanmışsa.
+    expect(result.valid).toBe(false)
+    if (result.valid) return
+    expect(result.references?.every((entry) => entry.valid)).toBe(true)
+    expect(result.reason).toContain('açık anahtarıyla doğrulanmadı')
   })
 })
 

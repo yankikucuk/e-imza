@@ -3,7 +3,7 @@ import { X509Certificate } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import { Pkcs12Error } from '../src/core/errors.js'
-import { loadPkcs12 } from '../src/pki/pkcs12.js'
+import { loadPkcs12, selectLeafCertificate } from '../src/pki/pkcs12.js'
 
 import { canGenerateKeyMaterial, hasLegacyOpenssl, keyMaterial } from './key-material.js'
 
@@ -93,5 +93,56 @@ describe.skipIf(!canGenerateKeyMaterial())('PKCS#12 kap okuma', () => {
     it('PKCS#12 olmayan girdi reddedilir', () => {
       expect(() => loadPkcs12(new Uint8Array([1, 2, 3]), '')).toThrow()
     })
+  })
+})
+
+describe.skipIf(!canGenerateKeyMaterial())('uç sertifika seçimi', () => {
+  /**
+   * `localKeyId` özniteliği olmayan kaplar var; OpenSSL her zaman yazar ama
+   * başka üreticiler yazmayabilir. O durumda seçim `checkPrivateKey`'e
+   * düşer ve bu yol kapla değil doğrudan sınanmalı — aksi hâlde kodda durur
+   * ama hiç çalıştırılmaz.
+   */
+  const candidates = (): {
+    leaf: { der: Uint8Array; x509: X509Certificate; localKeyId?: string }
+    other: { der: Uint8Array; x509: X509Certificate; localKeyId?: string }
+    privateKey: ReturnType<typeof loadPkcs12>['privateKey']
+  } => {
+    const { modernRsa, modernEc } = keyMaterial()
+    const own = loadPkcs12(modernRsa.p12, modernRsa.password)
+    const foreign = loadPkcs12(modernEc.p12, modernEc.password)
+    return {
+      leaf: { der: own.certificate, x509: new X509Certificate(Buffer.from(own.certificate)) },
+      other: {
+        der: foreign.certificate,
+        x509: new X509Certificate(Buffer.from(foreign.certificate)),
+      },
+      privateKey: own.privateKey,
+    }
+  }
+
+  it('localKeyId yoksa açık anahtar karşılaştırmasıyla bulunur', () => {
+    const { leaf, other, privateKey } = candidates()
+    // Doğru sertifika listede İKİNCİ: "ilkini al" diyen bir uygulama yanılır.
+    expect(selectLeafCertificate([other, leaf], undefined, privateKey)).toBe(leaf)
+  })
+
+  it('localKeyId varsa doğrudan onunla eşleşir', () => {
+    const { leaf, other, privateKey } = candidates()
+    const marked = { ...leaf, localKeyId: 'abc' }
+    expect(selectLeafCertificate([other, marked], 'abc', privateKey)).toBe(marked)
+  })
+
+  it('localKeyId yanlış sertifikayı gösteriyorsa hata verir', () => {
+    const { leaf, other, privateKey } = candidates()
+    const misMarked = { ...other, localKeyId: 'abc' }
+    expect(() => selectLeafCertificate([misMarked, leaf], 'abc', privateKey)).toThrow(
+      /özel anahtarla eşleşmiyor/,
+    )
+  })
+
+  it('hiçbiri eşleşmiyorsa hata verir', () => {
+    const { other, privateKey } = candidates()
+    expect(() => selectLeafCertificate([other], undefined, privateKey)).toThrow(/bulunamadı/)
   })
 })

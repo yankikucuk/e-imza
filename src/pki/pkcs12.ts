@@ -172,16 +172,56 @@ export const loadPkcs12 = (
     )
   }
 
-  // Uç sertifika, özel anahtarla EŞLEŞEN sertifikadır. Yaygın sezgisel yol
-  // ("kimsenin düzenleyeni olmayan sertifika") çapraz imzalı zincirlerde
-  // yanlış sertifikayı seçer; `checkPrivateKey` ise kesin cevap verir.
   const parsed = certificates.map((entry) => ({
     ...entry,
     x509: new X509Certificate(Buffer.from(entry.der)),
   }))
+  const leaf = selectLeafCertificate(parsed, keyLocalId, privateKey)
+
+  const rest = parsed.filter((entry) => entry !== leaf)
+  return {
+    privateKey,
+    certificate: leaf.der,
+    chain: orderChain(leaf.x509, rest),
+    ...(friendlyName === undefined ? {} : { friendlyName }),
+  }
+}
+
+/** {@link selectLeafCertificate} girdisi. */
+export interface CandidateCertificate {
+  readonly der: Uint8Array
+  readonly x509: X509Certificate
+  readonly localKeyId?: string
+}
+
+/**
+ * Kaptaki sertifikalardan özel anahtara ait olanı seçer.
+ *
+ * İki yol denenir, bu sırayla:
+ * 1. `localKeyId` özniteliği — kap, anahtarla sertifikayı zaten
+ *    eşleştirmişse en ucuz ve en kesin cevap budur.
+ * 2. `checkPrivateKey` — öznitelik yoksa ya da yanlışsa, açık anahtar
+ *    doğrudan karşılaştırılır.
+ *
+ * Yaygın sezgisel yol — "kimsenin düzenleyeni olmayan sertifika" — burada
+ * KULLANILMIYOR. Çapraz imzalı zincirlerde iki sertifika da uç görünebilir
+ * ve sezgi yanlış olanı seçer. Seçim ne olursa olsun sonunda `checkPrivateKey`
+ * ile doğrulanıyor: yanlış bir sertifika sessizce geçemez, hata verir.
+ *
+ * @param candidates - Kaptaki sertifikalar
+ * @param keyLocalId - Özel anahtarın `localKeyId` değeri, varsa
+ * @param privateKey - Kaptan çıkan özel anahtar
+ * @returns Anahtara ait sertifika
+ * @throws {Pkcs12Error} Eşleşen sertifika yoksa
+ */
+export const selectLeafCertificate = <T extends CandidateCertificate>(
+  candidates: readonly T[],
+  keyLocalId: string | undefined,
+  privateKey: KeyObject,
+): T => {
   const leaf =
-    parsed.find((entry) => keyLocalId !== undefined && entry.localKeyId === keyLocalId) ??
-    parsed.find((entry) => entry.x509.checkPrivateKey(privateKey))
+    candidates.find((entry) => keyLocalId !== undefined && entry.localKeyId === keyLocalId) ??
+    candidates.find((entry) => entry.x509.checkPrivateKey(privateKey))
   if (leaf === undefined) {
     throw new Pkcs12Error('missing', 'Özel anahtarla eşleşen sertifika kapta bulunamadı.')
   }
@@ -191,14 +231,7 @@ export const loadPkcs12 = (
       'localKeyId ile işaretlenen sertifika özel anahtarla eşleşmiyor.',
     )
   }
-
-  const rest = parsed.filter((entry) => entry !== leaf)
-  return {
-    privateKey,
-    certificate: leaf.der,
-    chain: orderChain(leaf.x509, rest),
-    ...(friendlyName === undefined ? {} : { friendlyName }),
-  }
+  return leaf
 }
 
 /**
