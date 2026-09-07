@@ -3,6 +3,58 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.6.0] — 2026-09-07
+
+PAdES-LT ve PAdES-LTA — PDF'te uzun dönem doğrulanabilirlik.
+
+### Eklendi
+
+- `padesUpgrade({ to: 'LT' })` — `/DSS` (Document Security Store) ile
+  sertifika, OCSP yanıtı ve CRL'i belgeye gömme; var olan `/DSS` korunup
+  genişletiliyor
+- `padesDocumentTimestamp()` — `/DocTimeStamp` (`/SubFilter /ETSI.RFC3161`)
+  belge zaman damgası; `prepare`/`finish` deyimi, jeton gömülmeden önce bu
+  baytları damgaladığı denetleniyor
+- `readDocumentSecurityStore()`, `vriKey()`, `addDocumentSecurityStore()`
+- `padesVerify()` artık her imza için `level` (`B-B`/`B-T`/`B-LT`/`B-LTA`)
+  ve `hasVri` bildiriyor; `/DocTimeStamp` damgaları ayrı bir
+  `documentTimestamps` dizisinde doğrulanıyor
+- `streamData()` — PDF akış verisini süzgeçten geçirip verir
+
+### Değişti
+
+- `padesVerify()` sonucuna `documentTimestamps` ve `dss` alanları eklendi;
+  var olan alanlar korundu (geriye dönük uyumlu)
+- İmza alanı yerleştirme, imza ve belge damgası arasında **ortak** bir
+  modüle çıkarıldı; `/ByteRange` hesabının iki yerde ayrışması yapısal
+  olarak imkânsız hâle geldi
+
+### Kararlar
+
+- **Seviye yalnızca doğrulanan kanıtla yükseliyor.** Gömülü ama tutmayan
+  bir damga `B-LTA` yapmaz, `document-timestamp-invalid` uyarısı çıkarır
+- **Basamak atlanmıyor.** `/DSS` varken imza zaman damgası yoksa seviye
+  `B-B` kalır; ETSI, `B-LT`nin `B-T` üzerine kurulmasını şart koşuyor
+- **`/VRI` anahtarı `/Contents` baytlarının SHA-1'i — sıfır dolgusu
+  dahil.** Spesifikasyon netleştirmiyor; dolgulu hâl seçildi çünkü yaygın
+  uygulamalar (iText, PDFBox tabanlı ETSI DSS) böyle hesaplıyor ve `/VRI`nin
+  tek işlevi başka bir doğrulayıcıyla eşleşmek. Test bu değeri **OpenSSL'e**
+  hesaplatıp karşılaştırıyor
+- **Damga sözlüğüne `/M` yazılmıyor.** Zaman, jetonun içindeki TSA'nın
+  söylediğidir; ikinci bir kaynak koymak çelişki üretirdi
+- **CRL'ler gömülüyor ama seviye yükseltmiyor.** İçerikleri çözümlenmediği
+  için iptal kanıtı sayılmıyorlar
+
+### Doğrulama
+
+- 31 yeni test; toplam 491
+- `pdfsig`, belge damgasını ayrı bir imza alanı olarak görüp `/ByteRange`ını
+  kendi hesaplayarak `Total document signed` diyor
+- `openssl dgst -sha1`, `/VRI` anahtarını bağımsız olarak doğruluyor
+- Mutasyon denemesi: 13 kasıtlı hata, ilk turda 3'ü kaçtı (seviye hesabında
+  `/VRI` ile malzemenin karıştırılması, `/Type /Sig` yazılmış damganın
+  tanınması, yinelenen sertifikaların ayıklanması) — üçü de teste bağlandı
+
 ## [1.5.0] — 2026-09-07
 
 ASiC — imzalı konteyner. ASiC-S ve ASiC-E.

@@ -151,7 +151,7 @@ const readXrefTable = (reader: PdfReader): XrefSection => {
 /** PDF 1.5+ çapraz başvuru akışı. */
 const readXrefStream = (stream: PdfObject): XrefSection => {
   if (stream.kind !== 'stream') throw new SyntaxError('PDF: akış bekleniyordu.')
-  const data = decodeStream(stream)
+  const data = streamData(stream)
 
   const widthsEntry = stream.entries.get('W')
   if (widthsEntry?.kind !== 'array') throw new SyntaxError('PDF: /W alanı yok.')
@@ -207,7 +207,7 @@ const readXrefStream = (stream: PdfObject): XrefSection => {
  * reddedilir** — sessizce ham baytları döndürmek, çöp veriyi yapı sanmak
  * olurdu.
  */
-const decodeStream = (stream: PdfObject): Uint8Array => {
+export const streamData = (stream: PdfObject): Uint8Array => {
   if (stream.kind !== 'stream') throw new SyntaxError('PDF: akış bekleniyordu.')
   const filter = stream.entries.get('Filter')
   const names =
@@ -303,7 +303,7 @@ export const getObject = (document: PdfDocument, number: number): PdfObject | un
   // Nesne akışının içinde.
   const container = getObject(document, entry.stream)
   if (container?.kind !== 'stream') return undefined
-  const data = decodeStream(container)
+  const data = streamData(container)
   const countEntry = container.entries.get('N')
   const firstEntry = container.entries.get('First')
   if (countEntry?.kind !== 'number' || firstEntry?.kind !== 'number') return undefined

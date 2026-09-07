@@ -182,10 +182,28 @@ export {
 
 export {
   padesVerify,
+  type PadesDocumentTimestampResult,
+  type PadesLevel,
   type PadesSignatureResult,
   type PadesVerification,
   type PadesWarning,
 } from './pades/verify.js'
+
+export {
+  padesDocumentTimestamp,
+  padesUpgrade,
+  type PadesDocumentTimestampOptions,
+  type PadesUpgradeToLongTerm,
+  type PendingDocumentTimestamp,
+} from './pades/upgrade.js'
+
+export {
+  addDocumentSecurityStore,
+  readDocumentSecurityStore,
+  vriKey,
+  type DocumentSecurityStore,
+  type ValidationMaterial,
+} from './pades/dss.js'
 
 /* ── PDF yapısı ───────────────────────────────────────────────────────── */
 export {
@@ -194,6 +212,7 @@ export {
   getObject,
   readPdf,
   resolve as resolvePdfObject,
+  streamData,
   type PdfDocument,
 } from './pdf/document.js'
 

@@ -1,8 +1,9 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.5.0 — kararlı.** Üç imza biçimi ve konteyneri: **XAdES**
+> **Durum: 1.6.0 — kararlı.** Üç imza biçimi ve konteyneri: **XAdES**
 > (BES, EPES, T, LT, LTA), **CAdES** (BES, EPES, T, LT), **PAdES**
-> (B-B, B-T) ve **ASiC** (S ve E). Yanında RFC 3161 zaman damgası,
+> (B-B, B-T, **B-LT**, **B-LTA**) ve **ASiC** (S ve E). Yanında RFC 3161
+> zaman damgası,
 > RFC 6960 OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık
 > imzalama ve paralel imza. Public API kararlıdır; kırıcı değişiklik ana
 > sürüm yükseltir.
@@ -610,6 +611,111 @@ padesSign({ pdf, signer, privateKey, signatureSpace: 32768 })
 
 Sığmazsa açık hata verilir — sessizce kırpmak bozuk bir dosya üretirdi.
 
+### PAdES-LT — belgeye gömülen doğrulama malzemesi
+
+Uzun dönem geçerlilik PDF'te `/DSS` (Document Security Store) ile kurulur:
+doğrulayanın ihtiyaç duyacağı **her şey** — zincir ve iptal kanıtı —
+belgenin içine, artımlı bir güncellemeyle konur. XAdES'teki
+`CertificateValues` + `RevocationValues` ikilisinin PDF karşılığı.
+
+```ts
+import { padesUpgrade, buildOcspRequest, readDocumentSecurityStore } from '@yankikucuk/e-imza'
+
+// İmzalayanın durumu için OCSP yanıtı al.
+const istek = buildOcspRequest({ certificate: imzalayan, issuer: araCa })
+const yanit = await fetch(ocspUrl, {
+  method: 'POST',
+  headers: { 'content-type': 'application/ocsp-request' },
+  body: istek,
+})
+
+const lt = padesUpgrade({
+  pdf: imzali, // B-T seviyesindeki PDF
+  to: 'LT',
+  certificates: [araCa, kokCa],
+  ocspResponses: [new Uint8Array(await yanit.arrayBuffer())],
+})
+
+readDocumentSecurityStore(lt)?.certificates.length // 2
+```
+
+Var olan bir `/DSS` **korunur ve genişletilir**: içindeki nesnelere yapılan
+başvurular olduğu gibi taşınır, yenileri eklenir. Üzerine yazmak, daha önce
+eklenmiş iptal kanıtını silmek olurdu.
+
+### PAdES-LTA — belge zaman damgası
+
+Arşiv damgası, belgenin **tamamını** — imzayı ve `/DSS`i birlikte — damgalar
+ve periyodik olarak yenilenir. Gerekçesi şu: `/DSS`e gömdüğünüz OCSP yanıtını
+imzalayan sertifikanın da bir gün süresi dolar; damga o zinciri kırılmadan
+uzatır.
+
+PDF açısından damga, **imzalayanı olmayan bir imzadır**: `/Contents` içinde
+ham bir RFC 3161 jetonu durur ve `/SubFilter /ETSI.RFC3161` bunu söyler.
+İmzada olduğu gibi burada da yer önce ayrılmak zorunda — yer ayrılmadan
+`/ByteRange` hesaplanamaz, `/ByteRange` olmadan damgalanacak baytlar belli
+olmaz — bu yüzden akış aynı `prepare`/`finish` deyimini izliyor:
+
+```ts
+import { padesDocumentTimestamp, parseTimestampResponse } from '@yankikucuk/e-imza'
+
+const bekleyen = padesDocumentTimestamp({ pdf: lt })
+
+const yanit = await fetch(tsaUrl, {
+  method: 'POST',
+  headers: { 'content-type': 'application/timestamp-query' },
+  body: bekleyen.request,
+})
+
+const lta = bekleyen.finish(parseTimestampResponse(new Uint8Array(await yanit.arrayBuffer())))
+```
+
+`finish`, jetonun gerçekten **bu** baytları damgaladığını gömmeden önce
+denetler. `verifyToken: false` ile kapatılabiliyor ama kapatmak, yanlış
+belgeye ait bir jetonu gömüp sessizce geçersiz bir B-LTA üretmenin en olası
+yolu.
+
+Damga yenilenebilir: ikinci bir `padesDocumentTimestamp` üsttekini ekler,
+eskisi kendi kapsadığı baytlar değişmediği için tutmaya devam eder.
+
+### Seviye, burada da kanıta bakar
+
+`padesVerify` her imza için bir `level` bildiriyor ve seviye yalnızca
+**doğrulanan** kanıtla yükseliyor:
+
+| Seviye    | Koşul                                                       |
+| --------- | ----------------------------------------------------------- |
+| **B-B**   | İmza geçerli                                                |
+| **B-T**   | + gömülü imza zaman damgası **doğrulandı**                  |
+| **B-LT**  | + `/DSS`te sertifika ya da OCSP yanıtı var                  |
+| **B-LTA** | + imzadan sonra atılmış, **doğrulanan** bir `/DocTimeStamp` |
+
+Basamaklar atlanmıyor: `/DSS` varken imza zaman damgası yoksa seviye B-B
+kalır. ETSI, B-LT'nin B-T üzerine kurulmasını şart koşuyor ve gerekçesi
+pratik — imza zamanı kanıtlanmamışsa, iptal kanıtının "imza anında" geçerli
+olduğunu söylemek bir şey ifade etmez.
+
+Gömülü ama **tutmayan** bir damga seviyeyi yükseltmez; bunun yerine
+`document-timestamp-invalid` uyarısı çıkar.
+
+### `/VRI` anahtarı ve neden dolgulu baytlar
+
+`/DSS` içindeki `/VRI` sözlüğü, hangi malzemenin hangi imzaya ait olduğunu
+gösterir ve anahtarı ISO 32000-2 uyarınca **imzanın SHA-1 özetinin büyük
+harfli onaltılık yazımıdır**. "İmza" burada `/Contents` dizesinin dosyada
+durduğu hâlidir — yani DER'in ardındaki **sıfır dolgusu da dahil**.
+
+Bu, kelimesi kelimesine tek okunuş değil: DER'i kırpıp yalnız CMS'i
+özetlemek de savunulabilir ve spesifikasyon bunu netleştirmiyor. Dolgulu hâl
+seçildi çünkü yaygın uygulamalar (iText'in `LtvVerification`'ı, PDFBox
+tabanlı ETSI DSS) `/Contents` bayt dizesini olduğu gibi özetliyor ve
+`/VRI`nin tek işlevi **başka bir doğrulayıcıyla eşleşmek**. Kendi
+okuyucumuzla tutarlı olmak yetmez.
+
+Testte anahtar **OpenSSL'e** hesaplatılıyor: `/Contents` onaltılığı dosyadan
+doğrudan okunuyor, çözülüyor ve `openssl dgst -sha1` sonucuyla
+karşılaştırılıyor.
+
 ### Doğrulama
 
 PAdES çıktısı **poppler'ın `pdfsig`i ile çapraz doğrulandı**: bağımsız bir
@@ -621,6 +727,10 @@ birlikte gösteriyor.
 Okuma tarafında üç çapraz başvuru biçimi de destekleniyor: klasik `xref`
 tablosu, çapraz başvuru akışı, ve PNG öngörücülü akış — sonuncusu modern
 üreticilerin varsayılanı ve geri alınmazsa tablo **sessizce** yanlış okunur.
+
+Belge damgası da bağımsız tanığını buluyor: `pdfsig` onu ayrı bir imza alanı
+olarak görüyor, `/ByteRange`ını **kendi** hesaplayıp `Total document signed`
+diyor. Damga alanının yerleşimini yanlış hesaplasaydık bu satır çıkmazdı.
 
 ## ASiC — imzalı konteyner
 
@@ -748,6 +858,7 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 |                     |                                                            |
 | ------------------- | ---------------------------------------------------------- |
 | **XAdES**           | BES, EPES, T, **LT**, **LTA** — beş seviye                 |
+| **PAdES**           | B-B, B-T, **B-LT**, **B-LTA** — `/DSS` ve `/DocTimeStamp`  |
 | **Zaman damgası**   | RFC 3161 — istek üretme, jeton doğrulama, seviye yükseltme |
 | **İptal denetimi**  | RFC 6960 OCSP — istek üretme, yanıt doğrulama              |
 | **CMS**             | RFC 5652 `SignedData` okuma ve doğrulama                   |
@@ -761,13 +872,19 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**PAdES-LT / LTA** — PDF'e `/DSS` sözlüğü ve belge zaman damgası eklemek.
-İmza içine gömülü CAdES zaten T seviyesine çıkabiliyor; eksik olan PDF
-tarafındaki uzun-dönem yapısı. Sıradaki iş.
-
 **CAdES-LTA** — arşiv zaman damgası. `archive-timestamp-v3` girdisi
 XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak istemedim;
 okunduğunda kriptografik geçerliliği bildiriliyor ama seviye yükseltmiyor.
+Sıradaki iş.
+
+**PAdES `/VRI` başına ayrı malzeme** — `/VRI` yazılıyor ama belgedeki bütün
+malzeme her imzaya bağlanıyor. Hangi sertifikanın hangi imzaya ait olduğunu
+çağıran bilir, kütüphane bilmez; yanlış eşleştirmektense hepsini göstermek
+seçildi. Tek imzalı belgelerde — pratikte e-Fatura'nın tamamı — fark yok.
+
+**CRL'lerle PAdES-LT** — CRL'ler `/DSS`e gömülebiliyor ama içerikleri
+çözümlenmediği için doğrulama tarafı onları iptal kanıtı olarak
+DEĞERLENDİRMİYOR; seviye yalnızca OCSP yoluyla yükseliyor.
 
 **ASiC-E'de XAdES manifesti** — ASiC-E + CAdES için `ASiCManifest` üretiliyor
 ve okunurken özetleri doğrulanıyor. XAdES tarafında imza dosyaların kendisine
@@ -851,44 +968,52 @@ kopyalanmadığı için kaybolamaz da.
 ## Mimari
 
 ```
-                   sign / verify          (tepe; her şeyi görür)
+              sign / verify / upgrade      (tepe; her şeyi görür)
                          │
-                       xades              (XML ile kripto burada buluşur)
-                   ┌─────┴─────┐
-                 c14n         pki         ← KARDEŞ, birbirini göremez
-                   │           │
-                  xml        asn1
-                   └─────┬─────┘
-                       core                (yaprak)
+        ┌────────┬───────┴───────┬────────┐
+      xades    cades           pades     asic     ← KARDEŞ
+        │        │             │   │       │
+        │        └──────┬──────┘  pdf     zip
+        │               │          │       │
+      c14n             pki         │       │     ← KARDEŞ
+        │               │          │       │
+       xml            asn1         │       │
+        └───────┬───────┴──────────┴───────┘
+              core                            (yaprak)
 ```
 
 Kardeş izolasyonu ESLint ile uygulanıyor ve doğrudan doğrulanabilirlik
 kazandırıyor: `c14n` hiçbir kriptografi görmediği için W3C'nin kendi test
 vektörleriyle tek başına sınanabiliyor, `pki` ise hiç XML görmediği için
-PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
+PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor, `zip` hiç imza
+görmediği için `unzip` ile tek başına sınanabiliyor.
+
+`pades`, `pdf` ve `cades`in üstünde durur: PDF'e gömülen şey ayrık bir CAdES
+imzasıdır ve PAdES kendi kriptografisini getirmez.
 
 ## Geliştirme
 
 ```bash
 npm install
-npm test              # 460 test
+npm test              # 491 test
 npm run test:coverage
 npm run typecheck
 npm run lint
 npm run knip
 ```
 
-Testler üç bağımsız referans uygulamayla karşılaştırma yapar:
+Testler dört bağımsız referans uygulamayla karşılaştırma yapar:
 
-| ne                              | araç                    |
-| ------------------------------- | ----------------------- |
-| kanonikleştirme                 | **libxml2** (`xmllint`) |
-| ASN.1, CMS, zaman damgası, OCSP | **OpenSSL**             |
-| PDF imzası                      | **poppler** (`pdfsig`)  |
+| ne                                      | araç                    |
+| --------------------------------------- | ----------------------- |
+| kanonikleştirme                         | **libxml2** (`xmllint`) |
+| ASN.1, CMS, zaman damgası, OCSP, `/VRI` | **OpenSSL**             |
+| PDF imzası ve belge damgası kapsamı     | **poppler** (`pdfsig`)  |
+| ASiC konteyneri                         | **Info-ZIP** (`unzip`)  |
 
 Zaman damgası ve OCSP çevrimdışı sunucularla sınanıyor (`openssl ts -reply`,
 `openssl ocsp -index`) — testler hiçbir zaman ağa çıkmaz. Araç yoksa ilgili
-testler atlanır; CI'da üçü de kurulu ve varlıkları ayrıca iddia ediliyor.
+testler atlanır; CI'da dördü de kurulu ve varlıkları ayrıca iddia ediliyor.
 
 Anahtar malzemesi depoda tutulmaz, her koşuda geçici dizinde üretilir.
 Eski biçim kapları macOS'un sistem LibreSSL'iyle, modern olanlar OpenSSL 3
