@@ -164,6 +164,35 @@ export default defineConfig(
       'pdf yalnızca core katmanına bağımlı olabilir; PDF yapısı kriptografi bilmez.',
     ),
   },
+  // ── Katman: zip ───────────────────────────────────────────────────────
+  // ZIP biçimi. Kriptografiyi de imza biçimlerini de HİÇ görmez.
+  {
+    files: ['src/zip/**/*.ts'],
+    rules: forbid(
+      [
+        '**/asn1/**',
+        '**/pki/**',
+        '**/xml/**',
+        '**/c14n/**',
+        '**/xades/**',
+        '**/cades/**',
+        '**/pdf/**',
+        '**/pades/**',
+        '**/asic/**',
+        ...TOP_LEVEL,
+      ],
+      'zip yalnızca core katmanına bağımlı olabilir; ZIP biçimi imza bilmez.',
+    ),
+  },
+  // ── Katman: asic ──────────────────────────────────────────────────────
+  // İmza konteyneri. İmza ÜRETMEZ, paketler — içindekine bakmaz.
+  {
+    files: ['src/asic/**/*.ts'],
+    rules: forbid(
+      ['**/pki/**', '**/xades/**', '**/cades/**', '**/pades/**', '**/pdf/**', ...TOP_LEVEL],
+      'asic yalnızca core, zip ve xml katmanlarına bağımlı olabilir; ASiC bir imza biçimi değil, taşıma biçimidir.',
+    ),
+  },
   // ── Katman: pades ─────────────────────────────────────────────────────
   // PDF ile CAdES'in birleştiği yer. Kendi kriptografisini getirmez.
   {

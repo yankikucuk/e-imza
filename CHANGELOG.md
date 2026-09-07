@@ -3,6 +3,50 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.5.0] — 2026-09-07
+
+ASiC — imzalı konteyner. ASiC-S ve ASiC-E.
+
+### Eklendi
+
+- `createAsic()`, `readAsic()` — konteyner üretme ve okuma
+- ASiC-E + CAdES için `ASiCManifest` üretimi; okurken referans edilen
+  dosyaların özetleri yeniden hesaplanıp karşılaştırılıyor
+- Sıfır bağımlılıklı ZIP katmanı: `createZip()`, `readZip()`,
+  `peekFirstEntry()`, `crc32()`
+
+### Kararlar
+
+- **ASiC imza üretmez, paketler.** İçine konan imzanın biçimine bakmıyor;
+  standardın kendi ayrımı bu
+- **ASiC-S kısıtları esnetilmiyor.** Birden çok dosya ya da imza açık hata
+  veriyor; esnetmek konteyneri okuyan diğer uygulamaların reddetmesine yol
+  açardı
+- **Manifest okunurken doğrulanıyor.** Özetleri kontrol etmemek, imzanın
+  kapsadığını iddia ettiği dosyanın gerçekten o dosya olduğunu varsaymak
+  olurdu
+- **ZIP64 ve şifreli ZIP desteklenmiyor.** ASiC konteynerleri bunları
+  kullanmaz; "belki lazım olur" diye eklemek sınanmamış kod demek
+
+### Doğrulama
+
+**Info-ZIP (`unzip`) çapraz doğrulaması.** Ürettiğimiz arşivleri `unzip -t`
+sağlam buluyor, `-l` listeliyor, `-p` içeriği doğru açıyor.
+
+Altı mutasyon denendi; ikisi ilk turda yakalanmadı ve ikisi de gerçek bir
+dayanıklılık boşluğuydu — ikisi de "kendi yazdığımız arşivlerde ikisi hep
+aynı" tuzağının örneği:
+
+- **Verinin konumu yerel başlıktan okunmalı.** Merkezî dizindeki ad ve ek
+  alan uzunlukları yerel başlıktakinden FARKLI olabilir; ZIP bunu
+  yasaklamıyor. Merkezî uzunlukları kullanan bir okuyucu yanlış konumdan
+  okur ve HATA VERMEZ. Testi, yerel başlığında ek alan olan ama merkezî
+  dizininde olmayan bir arşiv elle kurgulanarak yazıldı.
+- **Açılan boyut denetimi.** Beyan edilenden farklı çıkan bir girdi, imzanın
+  kapsadığı veriden farklı bir veri demektir; sessizce kabul edilmemeli.
+
+460 test.
+
 ## [1.4.0] — 2026-09-07
 
 PAdES — PDF imzası. B-B ve B-T.
@@ -254,6 +298,7 @@ hesaplandığı için `eContent`e dokunmak onu düşürmez. Testi eklendi.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
+[1.5.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.5.0
 [1.4.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.4.0
 [1.3.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.2.0

@@ -199,6 +199,25 @@ export {
 
 export { dictEntry, PdfReader, type PdfObject } from './pdf/object.js'
 
+/* ── ASiC (imzalı konteyner) ──────────────────────────────────────────── */
+export {
+  ASIC_MIME_TYPE,
+  createAsic,
+  readAsic,
+  type AsicContainer,
+  type AsicDataFile,
+  type AsicManifestEntry,
+  type AsicSignature,
+  type AsicSignatureEntry,
+  type AsicSignatureFormat,
+  type AsicType,
+  type CreateAsicOptions,
+} from './asic/container.js'
+
+/* ── ZIP ──────────────────────────────────────────────────────────────── */
+export { createZip, peekFirstEntry, readZip, type ZipEntry } from './zip/archive.js'
+export { crc32 } from './zip/crc32.js'
+
 /* ── Doğrulama ────────────────────────────────────────────────────────── */
 export {
   verify,

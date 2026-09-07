@@ -17,8 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Doğrulama zinciri libxml2, OpenSSL ve poppler ile karşılaştırma
-      # yapıyor; üçü de kurulu olmadan yayın öncesi denetim eksik koşar.
+      # Doğrulama zinciri libxml2, OpenSSL, poppler ve Info-ZIP ile
+      # karşılaştırma yapıyor; hepsi kurulu olmadan denetim eksik koşar.
       - name: Referans araçları kur
         run: |
           sudo apt-get update -qq
@@ -26,6 +26,7 @@ jobs:
           xmllint --version
           openssl version
           pdfsig -v
+          unzip -v | head -1
 
       - uses: actions/setup-node@v7
         with:

@@ -1,16 +1,16 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.4.0 — kararlı.** Üç imza biçimi de hazır: **XAdES**
-> (BES, EPES, T, LT, LTA), **CAdES** (BES, EPES, T, LT) ve **PAdES**
-> (B-B, B-T). Yanında RFC 3161 zaman damgası, RFC 6960 OCSP, RFC 5652 CMS,
-> kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel imza.
-> Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir. ASiC yol
-> haritasında ve katkısal.
+> **Durum: 1.5.0 — kararlı.** Üç imza biçimi ve konteyneri: **XAdES**
+> (BES, EPES, T, LT, LTA), **CAdES** (BES, EPES, T, LT), **PAdES**
+> (B-B, B-T) ve **ASiC** (S ve E). Yanında RFC 3161 zaman damgası,
+> RFC 6960 OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık
+> imzalama ve paralel imza. Public API kararlıdır; kırıcı değişiklik ana
+> sürüm yükseltir.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
 belgeleri doğrular. XML için **XAdES**, ikili veri için **CAdES**, PDF için
-**PAdES**.
+**PAdES**, hepsini tek dosyada taşımak için **ASiC**.
 
 Çalışma zamanı bağımlılığı **yoktur**. Gereken her şey — kanonikleştirme,
 ASN.1, PKCS#12, hatta artık Node'un kriptografisinde bulunmayan RC2 ve
@@ -622,6 +622,86 @@ Okuma tarafında üç çapraz başvuru biçimi de destekleniyor: klasik `xref`
 tablosu, çapraz başvuru akışı, ve PNG öngörücülü akış — sonuncusu modern
 üreticilerin varsayılanı ve geri alınmazsa tablo **sessizce** yanlış okunur.
 
+## ASiC — imzalı konteyner
+
+Belgeyi ve imzasını **tek dosyada** taşımak için. ASiC imza üretmez,
+paketler: içine konan imza XAdES de olabilir CAdES de, konteyner içeriğine
+bakmaz. Standardın kendi ayrımı bu — ASiC bir imza biçimi değil, taşıma
+biçimidir.
+
+```ts
+import { cadesSign, createAsic, readAsic, cadesVerify } from '@yankikucuk/e-imza'
+
+// Belgeyi ayrık CAdES ile imzala.
+const imza = cadesSign({ data: fatura, signer, privateKey, attached: false })
+
+// İkisini tek konteynerde paketle.
+const konteyner = createAsic({
+  type: 'asic-s',
+  dataFiles: [{ name: 'fatura.xml', data: fatura }],
+  signatures: [{ format: 'cades', data: imza }],
+})
+
+// Karşı taraf açar ve doğrular.
+const okunan = readAsic(konteyner)
+cadesVerify(okunan.signatures[0]!.data, { content: okunan.dataFiles[0]!.data })
+```
+
+### ASiC-S ve ASiC-E
+
+**ASiC-S** tek veri dosyası ve tek imza taşır — bir faturayı imzasıyla
+birlikte göndermek için. **ASiC-E** birden çoğunu; hangi imzanın hangi
+dosyaları kapsadığı `ASiCManifest` ile bildirilir.
+
+```ts
+createAsic({
+  type: 'asic-e',
+  dataFiles: [
+    { name: 'fatura.xml', data: fatura },
+    { name: 'ek.pdf', data: ek },
+  ],
+  signatures: [
+    { format: 'cades', data: imzaA }, // hepsini kapsar
+    { format: 'cades', data: imzaB, covers: ['ek.pdf'] }, // yalnızca eki
+  ],
+})
+```
+
+ASiC-S kısıtları esnetilmiyor: birden çok dosya ya da imza vermek açık hata
+verir. Esnetmek, konteyneri okuyan diğer uygulamaların reddetmesine yol
+açardı.
+
+### Manifest okunurken doğrulanıyor
+
+`readAsic` bir `ASiCManifest` bulduğunda referans edilen dosyaların
+özetlerini **yeniden hesaplayıp** karşılaştırır:
+
+```ts
+const manifest = okunan.signatures[0]?.manifest
+manifest?.references
+// [{ uri: 'fatura.xml', present: true, digestMatches: true }, …]
+```
+
+Manifesti okuyup özetleri doğrulamamak, imzanın kapsadığını _iddia ettiği_
+dosyanın gerçekten o dosya olduğunu varsaymak olurdu.
+
+### `mimetype` neden ilk ve sıkıştırılmamış
+
+Standardın şartı, ama sebebi pratik: konteynerin türü ZIP açılmadan,
+dosyanın ilk baytlarına bakılarak anlaşılabiliyor. `peekFirstEntry` tam
+olarak bunu yapıyor ve `readAsic` türü oradan belirliyor.
+
+### Doğrulama
+
+ZIP katmanı **Info-ZIP (`unzip`) ile çapraz doğrulandı**: ürettiğimiz
+arşivleri `unzip -t` sağlam buluyor, `unzip -l` listeliyor, `unzip -p`
+içeriği doğru açıyor. Yerel başlıklar, merkezî dizin ve CRC-32 değerlerinin
+hepsinin doğru olduğunu birlikte gösteriyor.
+
+Okuma tarafında merkezî dizin yetkili sayılıyor ama **verinin konumu yerel
+başlıktan** okunuyor: ikisi çelişebilir ve merkezî uzunluklara güvenen bir
+okuyucu yanlış konumdan okur — hata vermeden, sessizce.
+
 ## Kanonikleştirme
 
 Kanonikleştirici ayrıca kullanılabilir. **Canonical XML 1.0** ve
@@ -681,15 +761,21 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**ASiC** — imzalı konteyner (ETSI EN 319 162). Sıradaki iş.
-
 **PAdES-LT / LTA** — PDF'e `/DSS` sözlüğü ve belge zaman damgası eklemek.
 İmza içine gömülü CAdES zaten T seviyesine çıkabiliyor; eksik olan PDF
-tarafındaki uzun-dönem yapısı.
+tarafındaki uzun-dönem yapısı. Sıradaki iş.
 
 **CAdES-LTA** — arşiv zaman damgası. `archive-timestamp-v3` girdisi
 XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak istemedim;
 okunduğunda kriptografik geçerliliği bildiriliyor ama seviye yükseltmiyor.
+
+**ASiC-E'de XAdES manifesti** — ASiC-E + CAdES için `ASiCManifest` üretiliyor
+ve okunurken özetleri doğrulanıyor. XAdES tarafında imza dosyaların kendisine
+referans verdiği için ayrı bir manifest gerekmiyor, ama ODF tarzı
+`META-INF/manifest.xml` üretilmiyor.
+
+**ZIP64 ve şifreli ZIP** — ASiC konteynerleri bunları kullanmaz. 4 GiB üstü
+konteyner ya da parola korumalı arşiv desteklenmiyor.
 
 **Şifreli PDF** — imza eklemek belgeyi çözmeyi gerektirir; açıkça
 reddediliyor.
@@ -785,7 +871,7 @@ PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
 
 ```bash
 npm install
-npm test              # 427 test
+npm test              # 460 test
 npm run test:coverage
 npm run typecheck
 npm run lint

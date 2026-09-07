@@ -16,9 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Testler üç bağımsız referans uygulamayla karşılaştırma yapıyor ve
+      # Testler dört bağımsız referans uygulamayla karşılaştırma yapıyor ve
       # üçü de gerçekten kurulu olmalı: kanonikleştirme libxml2 (xmllint),
-      # ASN.1 ve CMS OpenSSL, PDF imzası poppler (pdfsig) ile doğrulanıyor.
+      # ASN.1 ve CMS OpenSSL, PDF imzası poppler (pdfsig), ZIP konteyneri
+      # Info-ZIP (unzip) ile doğrulanıyor.
       # Araç yoksa o testler atlanır — ama atlanmaları sessiz kalmasın diye
       # her birinin varlığı ayrıca iddia ediliyor.
       - name: Referans araçları kur
@@ -28,6 +29,7 @@ jobs:
           xmllint --version
           openssl version
           pdfsig -v
+          unzip -v | head -1
 
       - uses: actions/setup-node@v7
         with:
