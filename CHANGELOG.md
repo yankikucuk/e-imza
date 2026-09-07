@@ -3,6 +3,31 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.7.1] — 2026-09-07
+
+Yalnızca belge. Kod değişmedi.
+
+### Değişti
+
+- **README baştan yazıldı.** Anlatım artık "başka bir paketin şu hatası var"
+  yerine "bu paket şu işi şöyle yapıyor" ekseninde. Karşılaştırma tabloları
+  ve issue numaraları kaldırıldı; ölçülen teknik bulgular ve bağımsız
+  doğrulama kanıtları olduğu gibi korundu
+- Bağımsız tanık olarak kullanılan araçlar (libxml2, OpenSSL, poppler,
+  Info-ZIP) elbette adıyla anılmaya devam ediyor — çapraz doğrulama
+  iddiasının anlamı buna bağlı
+- Kapsam tablosuna ASiC satırı eklendi; "Bu sürümde yok" bölümü gözden
+  geçirildi
+- Her sürümde yapılan mutasyon denemesi "Geliştirme" bölümünde anlatıldı
+
+### Duyuru
+
+- **PKCS#11 ayrı bir pakete taşınıyor:** `@yankikucuk/e-imza-pkcs11`.
+  Yerleşik destek yerel bir eklenti gerektirdiği için bu paketin sıfır
+  bağımlılık ilkesini kırardı. Ayrı paket olarak isteyen kurar, istemeyen
+  etkilenmez; `prepare()` / `complete()` bugün de kendi PKCS#11 katmanınızı
+  bağlamaya yetiyor
+
 ## [1.7.0] — 2026-09-07
 
 CAdES-LTA — `archive-time-stamp-v3`. Üç imza biçiminin üçü de artık arşiv

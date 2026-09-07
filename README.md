@@ -1,69 +1,73 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.7.0 — kararlı.** Üç imza biçimi ve konteyneri, **hepsi arşiv
+> **Durum: 1.7.1 — kararlı.** Üç imza biçimi ve bir konteyner, **hepsi arşiv
 > seviyesine kadar**: **XAdES** (BES, EPES, T, LT, LTA), **CAdES**
-> (BES, EPES, T, LT, **LTA**), **PAdES** (B-B, B-T, B-LT, B-LTA) ve **ASiC**
-> (S ve E). Yanında RFC 3161 zaman damgası,
-> RFC 6960 OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık
-> imzalama ve paralel imza. Public API kararlıdır; kırıcı değişiklik ana
-> sürüm yükseltir.
+> (BES, EPES, T, LT, LTA), **PAdES** (B-B, B-T, B-LT, B-LTA) ve **ASiC**
+> (S ve E). Yanında RFC 3161 zaman damgası, RFC 6960 OCSP, RFC 5652 CMS,
+> kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel imza.
+> Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir.
 
-Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
+Elektronik imza için **sıfır bağımlılıklı** bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
 belgeleri doğrular. XML için **XAdES**, ikili veri için **CAdES**, PDF için
 **PAdES**, hepsini tek dosyada taşımak için **ASiC**.
 
-Çalışma zamanı bağımlılığı **yoktur**. Gereken her şey — kanonikleştirme,
-ASN.1, PKCS#12, hatta artık Node'un kriptografisinde bulunmayan RC2 ve
-RC4 — paketin içindedir.
+Çalışma zamanı bağımlılığı yoktur. Gereken her şey — kanonikleştirme,
+ASN.1, PKCS#12, PDF ve ZIP okuma, hatta artık Node'un kriptografisinde
+bulunmayan RC2 ve RC4 — paketin içindedir.
 
-## Neden
+## Neden bu paket
 
-Bu paketi yazmadan önce mevcut JavaScript uygulamaları ölçüldü. Üç
-somut bulgu çıktı ve üçü de kalıcı testlere bağlandı.
+Türkiye'de e-imza akışının üç yerinde iş tıkanıyor. Paket bu üç noktayı
+çözmek için yazıldı ve üçü de kalıcı testlere bağlandı.
 
-### 1. UBL uzantısındaki imza xadesjs ile doğrulanamıyor
+### 1. İmza, UBL uzantısının derinliğinde doğru hesaplanır
 
-GİB, e-Fatura imzasını `ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent`
-içine bekler. `xadesjs`'in `enveloped-signature` dönüşümü ise yalnızca imza
-kök öğenin **doğrudan çocuğuyken** çalışıyor; daha derine gömülünce dönüşüm
-sessizce hiçbir şey yapmıyor ve özete imzanın kendisi de giriyor.
+GİB e-Fatura imzasını belgenin köküne değil,
+`ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent` içine bekler.
+XMLDSig'in `enveloped-signature` dönüşümü ise birçok uygulamada yalnızca
+imza kök öğenin **doğrudan çocuğuyken** çalışır. İmza daha derine
+gömüldüğünde dönüşüm sessizce hiçbir şey yapmaz — hata vermez, uyarmaz —
+ve imzanın kendisi de özete karışır. Ortaya çıkan imza yapı olarak
+kusursuz görünür ama karşı tarafta tutmaz.
 
-Hangi tarafın haklı olduğuna libxml2 karar veriyor:
+Doğru sonucu bağımsız bir tanık belirliyor. Belgeden imza çıkarıldıktan
+sonra kalan içeriği **libxml2** kanonikleştiriyor ve özetini alıyoruz:
 
-|                                                | özet                   |
-| ---------------------------------------------- | ---------------------- |
-| imza çıkarıldıktan sonra kalan belge (libxml2) | `wXIZvLWEe1Qf9haSO…`   |
-| **bu paketin imzada beyan ettiği**             | `wXIZvLWEe1Qf9haSO…` ✓ |
-| xadesjs'in hesapladığı                         | `gZLVNoBe0pS3Dw4LQ…` ✗ |
+|                                     | özet                   |
+| ----------------------------------- | ---------------------- |
+| libxml2'nin ürettiği referans sonuç | `wXIZvLWEe1Qf9haSO…`   |
+| **bu paketin imzada beyan ettiği**  | `wXIZvLWEe1Qf9haSO…` ✓ |
 
-`xadesjs#73`, Kasım 2018'de açıldı, hâlâ açık, 2.6.8'de yeniden
-üretiliyor. Ölçüm `tests/xadesjs-interop.test.ts` içinde sabitlendi.
+Bu paket dönüşümü tanımına uygun uyguluyor: **yalnızca kendi imzasını**
+kapsam dışında bırakıyor, nerede durduğuna bakmaksızın.
 
-### 2. Eski `.p12` dosyaları pkijs ile açılamıyor
+### 2. Eski `.p12` kapları açılır
 
-Eski Java ve Windows araçları — ve macOS'un sistem LibreSSL'i — PKCS#12
-kabının sertifika bölümünü `pbeWithSHAAnd40BitRC2-CBC` ile şifreler. RC2,
-Node'un OpenSSL 3'ünde varsayılan sağlayıcıdan çıkarıldı ve WebCrypto'da
-hiç yok:
+Eski Java ve Windows araçları — ve macOS'un sistem TLS kütüphanesi —
+PKCS#12 kabının sertifika bölümünü `pbeWithSHAAnd40BitRC2-CBC` ile
+şifreler. RC2, Node'un OpenSSL 3'ünde varsayılan sağlayıcıdan çıkarıldı ve
+WebCrypto'da hiç bulunmuyor. Sonuç: elinizdeki mühür kabı modern
+araçlarla açılmıyor.
 
-|                        | eski (RC2-40)                                                     | modern (PBES2/AES-256) |
-| ---------------------- | ----------------------------------------------------------------- | ---------------------- |
-| pkijs 3                | ✗ `Unknown "contentEncryptionAlgorithm": 1.2.840.113549.1.12.1.6` | ✓                      |
-| **@yankikucuk/e-imza** | ✓                                                                 | ✓                      |
+|                        | eski kaplar (RC2-40) | modern kaplar (PBES2/AES-256) |
+| ---------------------- | -------------------- | ----------------------------- |
+| **@yankikucuk/e-imza** | ✓                    | ✓                             |
 
 RC2 ve RC4 bu pakette saf JavaScript olarak var; RFC 2268'in sekiz test
-vektörüyle iki yönde ve LibreSSL'in ürettiği şifreli metinlerle
-doğrulanıyor. Yalnızca **çözme** yönü dışa açık: yeni bir kabı zayıf bir
-şifreyle yazmanın gerekçesi yok.
+vektörüyle iki yönde ve bağımsız bir TLS kütüphanesinin ürettiği şifreli
+metinlerle doğrulanıyor. Yalnızca **çözme** yönü dışa açık — yeni bir kabı
+zayıf bir şifreyle yazmanın gerekçesi yok.
 
-### 3. Özel anahtara erişilemediğinde imzalamanın yolu yoktu
+### 3. Anahtara erişilemediğinde de imzalanır
 
-Mali mühür bir donanım modülünde, NES bir akıllı kartta olabilir. O zaman
-kütüphaneye "anahtarı al, imzala" denemez; "şu baytları imzala ve sonucu
-getir" denmesi gerekir. `xadesjs#85`, `#133`, `node-signpdf#270` ve `#272`
-hep bunu istiyordu. Bu pakette `prepare()` / `complete()` ayrımı bu iş için
-var — üstelik kartların istediği üç biçimi de veriyor.
+Mali mühür bir donanım modülünde, nitelikli sertifika bir akıllı kartta
+olabilir. O zaman kütüphaneye "anahtarı al, imzala" denemez; "şu baytları
+imzala ve sonucu getir" denmesi gerekir.
+
+`prepare()` / `complete()` ayrımı tam bu iş için var ve kartların
+isteyebileceği **üç biçimin üçünü de** veriyor: ham veri, DER `DigestInfo`
+ve çıplak özet. Aynı deyim CAdES ve PAdES tarafında da geçerli.
 
 ## Kurulum
 
@@ -102,10 +106,6 @@ if (sonuc.valid) {
   console.log(sonuc.signer.subjectSerialNumber) // VKN
 }
 ```
-
-`@yankikucuk/ubl-tr` ile birlikte kullanıldığında fatura üretimi ve
-imzalama uçtan uca tamamlanır; iki paket birbirini import etmez, imza
-katmanı belge katmanını bilmez.
 
 ## `@yankikucuk/ubl-tr` ile birlikte
 
@@ -207,8 +207,8 @@ console.log(kurallar.valid) // true
 | Birbirine bağımlılık | **yok**                            | **yok**                               |
 
 İmzasız kullanım da anlamlıdır: e-Arşiv portal akışında belge GİB tarafında
-imzalanır, siz yalnızca üretirsiniz. İmzayı ayrı tutmak o senaryoyu
-zorunlu bir bağımlılıkla ağırlaştırmıyor.
+imzalanır, siz yalnızca üretirsiniz. İmzayı ayrı tutmak o senaryoyu zorunlu
+bir bağımlılıkla ağırlaştırmıyor.
 
 ### Sırayı bozmayın
 
@@ -264,6 +264,11 @@ const imzali = complete(bekleyen, imza)
 `digestInfo` alanı EC anahtarlarda `undefined` olur. ECDSA imzası **ham
 `r‖s`** biçiminde beklenir, ASN.1 DER değil — XMLDSig bunu şart koşar.
 
+> PKCS#11 sürücüsüne doğrudan konuşan katman ayrı bir pakete taşınıyor:
+> `@yankikucuk/e-imza-pkcs11`. Böylece bu paket sıfır bağımlılık kalıyor ve
+> yalnızca ihtiyacı olan onu kuruyor. Yukarıdaki `prepare()` / `complete()`
+> deyimi zaten bugün de kendi PKCS#11 katmanınızı bağlamanıza yetiyor.
+
 ## Paralel imza
 
 Aynı belgeyi birden çok kişinin bağımsız imzalaması. Varsayılan davranış
@@ -293,8 +298,8 @@ bile damga, o ana kadar geçerli olduğunu gösterir.
 
 Kütüphane TSA'ya **bağlanmaz**. İstek baytlarını üretir, jetonu yerleştirir;
 aradaki HTTP çağrısı sizin. Bir imza kütüphanesinin ne zaman ve nereye
-bağlandığı çağıranın kararı olmalı — hem güvenlik açısından, hem de bu
-akış çoğu zaman kuyruk ve yeniden deneme mantığı gerektirdiği için.
+bağlandığı çağıranın kararı olmalı — hem güvenlik açısından, hem de bu akış
+çoğu zaman kuyruk ve yeniden deneme mantığı gerektirdiği için.
 
 ```ts
 import { timestampRequest, upgrade, parseTimestampResponse, verify } from '@yankikucuk/e-imza'
@@ -328,9 +333,9 @@ damgalar ve `verify()` her birini ayrı raporlar.
 
 ### Seviye, iddiaya değil kanıta bakar
 
-`verify()` bulduğu her damgayı gerçekten doğrular: jeton kriptografik
-olarak geçerli mi, ve **bu** imzayı mı damgalıyor. Doğrulanmayan bir damga
-seviyeyi yükseltmez.
+`verify()` bulduğu her damgayı gerçekten doğrular: jeton kriptografik olarak
+geçerli mi, ve **bu** imzayı mı damgalıyor. Doğrulanmayan bir damga seviyeyi
+yükseltmez.
 
 ```ts
 const sonuc = verify(supheliBelge)
@@ -412,8 +417,8 @@ verify(lt).level // 'LT'
 ```
 
 Yalnızca zincir gömmek LT sayılmaz: iptal kanıtı olmadan imza yine
-doğrulanamaz. `upgrade()` bu yüzden en az bir OCSP yanıtı ya da CRL ister
-ve yoksa açık hata verir — sessizce kabul etmek, kullanıcıya sahte bir
+doğrulanamaz. `upgrade()` bu yüzden en az bir OCSP yanıtı ya da CRL ister ve
+yoksa açık hata verir — sessizce kabul etmek, kullanıcıya sahte bir
 uzun-dönem güvencesi vermek olurdu.
 
 ### LTA — arşiv damgası
@@ -430,10 +435,8 @@ verify(lta).level // 'LTA'
 
 Arşiv damgası imzanın **ve o ana kadarki bütün imzalanmamış özelliklerin**
 tamamını kapsar — LT verisi dâhil. Gömülen OCSP yanıtının tek bir baytı
-değişse arşiv damgası tutmaz. Damga periyodik olarak yenilenebilir; her
-yeni damga bir öncekini de kapsar.
-
-`verify()` her damgayı ayrı raporlar:
+değişse arşiv damgası tutmaz. Damga periyodik olarak yenilenebilir; her yeni
+damga bir öncekini de kapsar.
 
 ```ts
 const sonuc = verify(lta)
@@ -444,14 +447,14 @@ sonuc.timestamps.map((d) => [d.kind, d.valid])
 ### Hangi tanım — ve sınırı
 
 Arşiv damgasının girdi hesabı **ETSI TS 101 903 v1.4.2 §8.2.1** uyarınca
-yapılıyor. EN 319 132 farklı bir girdi tanımlar; ikisi uyumlu değildir ve
-bu paket TS 101 903'ü uygular.
+yapılıyor. EN 319 132 farklı bir girdi tanımlar; ikisi uyumlu değildir ve bu
+paket TS 101 903'ü uygular.
 
-Dürüst olmak gerekirse: zaman damgasının **kendisi** OpenSSL ile iki yönde
+Açık olmak gerekirse: zaman damgasının **kendisi** OpenSSL ile iki yönde
 sınandı, ama arşiv damgasının **girdi hesabı** bağımsız bir uygulamayla
-çapraz doğrulanamadı. Riski karşılamak için girdinin bileşimi doğrudan
-teste bağlandı — hangi parçaların hangi sırayla girdiğini sabitleyen ayrı
-bir iddia var. Yine de, LTA imzalarınızı üretime almadan önce karşı tarafın
+çapraz doğrulanamadı. Riski karşılamak için girdinin bileşimi doğrudan teste
+bağlandı — hangi parçaların hangi sırayla girdiğini sabitleyen ayrı bir iddia
+var. Yine de LTA imzalarınızı üretime almadan önce karşı tarafın
 doğrulayıcısıyla denemenizi öneririm.
 
 ## CAdES — ikili veri imzası
@@ -495,8 +498,8 @@ Ayrık imzada içerik verilmezse `cadesVerify` **geçersiz** döner, sessizce
 
 ### CAdES-BES'i düz CMS'ten ayıran şey
 
-`signingCertificateV2` özniteliği (RFC 5035). İmzalayan sertifikanın
-özetini imzaya bağlar; olmadan imzayı doğrulayan sertifika yapının içinde
+`signingCertificateV2` özniteliği (RFC 5035). İmzalayan sertifikanın özetini
+imzaya bağlar; olmadan imzayı doğrulayan sertifika yapının içinde
 değiştirilebilir.
 
 `cadesVerify` bu bağı denetler ve tutmazsa uyarır:
@@ -564,8 +567,8 @@ damgası da aynı sebeple mümkün.
 
 **`unsignedAttrs` yine de korumasız kalmıyor.** `ATSHashIndex`, o an mevcut
 her sertifikanın, her iptal kaydının ve her imzalanmamış özniteliğin özetini
-tutuyor ve kendisi girdinin dördüncü bileşeni. Doğrulamada bu indeks
-belgeyle karşılaştırılıyor; damgadan sonra eklenen bir bileşen
+tutuyor ve kendisi girdinin dördüncü bileşeni. Doğrulamada bu indeks belgeyle
+karşılaştırılıyor; damgadan sonra eklenen bir bileşen
 `coversAllComponents: false` ve `archive-timestamp-partial-coverage`
 uyarısıyla raporlanıyor.
 
@@ -578,7 +581,7 @@ için bu onu bozmuyor.
 Bu paketin genel kuralı, kendi kendini doğrulayan koda güvenmemek. Arşiv
 damgasında o kural en çok zorlanıyor, çünkü **girdi hesabını sınayacak
 bağımsız bir uygulama bulunamadı** — bu formatı doğrulayan olgun açık
-kaynaklı uygulama ETSI DSS (Java) ve bu paketin test zinciri Node ile
+kaynaklı uygulama Java ekosisteminde ve bu paketin test zinciri Node ile
 sınırlı.
 
 Bu yüzden bağımsızlık üç ayrı yerden geliyor:
@@ -590,10 +593,9 @@ Bu yüzden bağımsızlık üç ayrı yerden geliyor:
 | İndeksteki her özet, sertifika sayısı                                 | `openssl dgst`, `openssl pkcs7` |
 
 **Kalan boşluk, açıkça:** bileşenlerin **sırası** standardın metninden alındı
-ve bir ETSI uygulamasıyla karşılaştırılamadı. Sıra, testte §6.4.3'ün
+ve bağımsız bir uygulamayla karşılaştırılamadı. Sıra, testte §6.4.3'ün
 maddeleriyle birlikte yazılı ve elle kurulmuş bir beklentiyle sabitlendi —
 ama üretime almadan önce karşı tarafın doğrulayıcısıyla denemenizi öneririm.
-Aynı uyarı XAdES-LTA için de geçerli.
 
 **ATSv2** (`1.2.840.113549.1.9.16.2.48`) okunuyor ama **üretilmiyor ve
 doğrulanmıyor**: girdi hesabı ATSv3'ten farklı. Belgede varsa
@@ -612,8 +614,7 @@ CAdES çıktısı **OpenSSL ile çapraz doğrulandı**: `openssl cms -verify`
 ürettiğimiz imzaları kabul ediyor — gömülü, ayrık, SHA-384/512, EC anahtar,
 EPES, T'ye ve LT'ye yükseltilmiş hâlleriyle. Bu, `signedAttrs` kodlamasının,
 `SET` etiketi dönüşümünün, `SignerInfo` alan sırasının ve `messageDigest`
-bağının hepsinin doğru olduğunu birlikte gösteriyor; kendi doğrulayıcımızla
-test etmek bunların hiçbirini göstermezdi.
+bağının hepsinin doğru olduğunu birlikte gösteriyor.
 
 ## PAdES — PDF imzası
 
@@ -644,42 +645,28 @@ sonuc.signatures[0].coversWholeDocument // true
 ### Özgün baytlara dokunulmaz
 
 İmza dosyanın **sonuna** eklenir, eski çapraz başvuru `/Prev` ile zincire
-bağlanır. Özgün baytlar bayt bayt korunur — daha önce atılmış imzalar bu
-yüzden bozulmaz ve aynı belgeye üst üste imza atılabilir.
-
-```ts
-const iki = padesSign({ pdf: imzali, signer, privateKey })
-padesVerify(iki).signatures // iki imza, ikisi de geçerli
-```
+bağlanır. Daha önce atılmış imzalar bu yüzden bozulmaz — ve aynı belgeye üst
+üste imza atılabilmesinin nedeni budur.
 
 ### Kapsam raporlanır
 
-İkinci imza eklendiğinde birincinin kapsamı daralır: kendisinden sonra
-eklenen bölüm onun `/ByteRange`ının dışındadır. Bu bir saldırı değil —
-artımlı güncelleme PDF'in normal davranışı — ama bilinmesi gerekiyor:
+İkinci bir imza eklendiğinde birincinin kapsamı daralır. Bu bir saldırı
+değil, PDF'in normal davranışı — ama bilinmesi gerekiyor:
 
 ```ts
-const imza = padesVerify(iki).signatures[0]
-imza.valid // true
-imza.coversWholeDocument // false
-imza.warnings // [{ code: 'partial-coverage', … }]
+const sonuc = padesVerify(ikiImzali)
+sonuc.signatures[0].coversWholeDocument // false
+sonuc.signatures[0].warnings // [{ code: 'partial-coverage', … }]
+sonuc.signatures[1].coversWholeDocument // true
 ```
-
-Sessizce "geçerli" demek, imzanın kapsamadığı içeriği kapsıyormuş gibi
-göstermek olurdu.
 
 ### İmza için yer ayırma
 
 PDF'te imzanın boyutu **imza atılmadan önce** ayrılmak zorunda: yer
 ayrılmadan `/ByteRange` hesaplanamaz, `/ByteRange` olmadan imzalanacak
 baytlar belli olmaz. Varsayılan 8 KB; zincir ve zaman damgası gömülecekse
-artırın.
-
-```ts
-padesSign({ pdf, signer, privateKey, signatureSpace: 32768 })
-```
-
-Sığmazsa açık hata verilir — sessizce kırpmak bozuk bir dosya üretirdi.
+`signatureSpace` ile artırın. Sığmayan imza sessizce kırpılmaz, açık hata
+verir.
 
 ### PAdES-LT — belgeye gömülen doğrulama malzemesi
 
@@ -689,21 +676,13 @@ belgenin içine, artımlı bir güncellemeyle konur. XAdES'teki
 `CertificateValues` + `RevocationValues` ikilisinin PDF karşılığı.
 
 ```ts
-import { padesUpgrade, buildOcspRequest, readDocumentSecurityStore } from '@yankikucuk/e-imza'
-
-// İmzalayanın durumu için OCSP yanıtı al.
-const istek = buildOcspRequest({ certificate: imzalayan, issuer: araCa })
-const yanit = await fetch(ocspUrl, {
-  method: 'POST',
-  headers: { 'content-type': 'application/ocsp-request' },
-  body: istek,
-})
+import { padesUpgrade, readDocumentSecurityStore } from '@yankikucuk/e-imza'
 
 const lt = padesUpgrade({
   pdf: imzali, // B-T seviyesindeki PDF
   to: 'LT',
   certificates: [araCa, kokCa],
-  ocspResponses: [new Uint8Array(await yanit.arrayBuffer())],
+  ocspResponses: [ocspYaniti],
 })
 
 readDocumentSecurityStore(lt)?.certificates.length // 2
@@ -715,16 +694,14 @@ eklenmiş iptal kanıtını silmek olurdu.
 
 ### PAdES-LTA — belge zaman damgası
 
-Arşiv damgası, belgenin **tamamını** — imzayı ve `/DSS`i birlikte — damgalar
-ve periyodik olarak yenilenir. Gerekçesi şu: `/DSS`e gömdüğünüz OCSP yanıtını
-imzalayan sertifikanın da bir gün süresi dolar; damga o zinciri kırılmadan
-uzatır.
+Arşiv damgası, belgenin **tamamını** — imzayı ve `/DSS`i birlikte —
+damgalar. Gerekçesi şu: `/DSS`e gömdüğünüz OCSP yanıtını imzalayan
+sertifikanın da bir gün süresi dolar; damga o zinciri kırılmadan uzatır.
 
 PDF açısından damga, **imzalayanı olmayan bir imzadır**: `/Contents` içinde
 ham bir RFC 3161 jetonu durur ve `/SubFilter /ETSI.RFC3161` bunu söyler.
-İmzada olduğu gibi burada da yer önce ayrılmak zorunda — yer ayrılmadan
-`/ByteRange` hesaplanamaz, `/ByteRange` olmadan damgalanacak baytlar belli
-olmaz — bu yüzden akış aynı `prepare`/`finish` deyimini izliyor:
+İmzada olduğu gibi burada da yer önce ayrılmak zorunda, bu yüzden akış aynı
+`prepare`/`finish` deyimini izliyor:
 
 ```ts
 import { padesDocumentTimestamp, parseTimestampResponse } from '@yankikucuk/e-imza'
@@ -741,12 +718,8 @@ const lta = bekleyen.finish(parseTimestampResponse(new Uint8Array(await yanit.ar
 ```
 
 `finish`, jetonun gerçekten **bu** baytları damgaladığını gömmeden önce
-denetler. `verifyToken: false` ile kapatılabiliyor ama kapatmak, yanlış
-belgeye ait bir jetonu gömüp sessizce geçersiz bir B-LTA üretmenin en olası
-yolu.
-
-Damga yenilenebilir: ikinci bir `padesDocumentTimestamp` üsttekini ekler,
-eskisi kendi kapsadığı baytlar değişmediği için tutmaya devam eder.
+denetler. Damga yenilenebilir: ikinci bir `padesDocumentTimestamp` üsttekini
+ekler, eskisi kendi kapsadığı baytlar değişmediği için tutmaya devam eder.
 
 ### Seviye, burada da kanıta bakar
 
@@ -765,9 +738,6 @@ kalır. ETSI, B-LT'nin B-T üzerine kurulmasını şart koşuyor ve gerekçesi
 pratik — imza zamanı kanıtlanmamışsa, iptal kanıtının "imza anında" geçerli
 olduğunu söylemek bir şey ifade etmez.
 
-Gömülü ama **tutmayan** bir damga seviyeyi yükseltmez; bunun yerine
-`document-timestamp-invalid` uyarısı çıkar.
-
 ### `/VRI` anahtarı ve neden dolgulu baytlar
 
 `/DSS` içindeki `/VRI` sözlüğü, hangi malzemenin hangi imzaya ait olduğunu
@@ -777,10 +747,9 @@ durduğu hâlidir — yani DER'in ardındaki **sıfır dolgusu da dahil**.
 
 Bu, kelimesi kelimesine tek okunuş değil: DER'i kırpıp yalnız CMS'i
 özetlemek de savunulabilir ve spesifikasyon bunu netleştirmiyor. Dolgulu hâl
-seçildi çünkü yaygın uygulamalar (iText'in `LtvVerification`'ı, PDFBox
-tabanlı ETSI DSS) `/Contents` bayt dizesini olduğu gibi özetliyor ve
-`/VRI`nin tek işlevi **başka bir doğrulayıcıyla eşleşmek**. Kendi
-okuyucumuzla tutarlı olmak yetmez.
+seçildi çünkü yaygın PDF imza araçları `/Contents` bayt dizesini olduğu gibi
+özetliyor ve `/VRI`nin tek işlevi **başka bir doğrulayıcıyla eşleşmek**.
+Kendi okuyucumuzla tutarlı olmak yetmez.
 
 Testte anahtar **OpenSSL'e** hesaplatılıyor: `/Contents` onaltılığı dosyadan
 doğrudan okunuyor, çözülüyor ve `openssl dgst -sha1` sonucuyla
@@ -794,20 +763,19 @@ signed` diye raporluyor. Bu tek sonuç artımlı güncellemenin, `/ByteRange`
 hesabının, imza sözlüğünün ve gömülü CAdES'in hepsinin doğru olduğunu
 birlikte gösteriyor.
 
-Okuma tarafında üç çapraz başvuru biçimi de destekleniyor: klasik `xref`
-tablosu, çapraz başvuru akışı, ve PNG öngörücülü akış — sonuncusu modern
-üreticilerin varsayılanı ve geri alınmazsa tablo **sessizce** yanlış okunur.
-
 Belge damgası da bağımsız tanığını buluyor: `pdfsig` onu ayrı bir imza alanı
 olarak görüyor, `/ByteRange`ını **kendi** hesaplayıp `Total document signed`
 diyor. Damga alanının yerleşimini yanlış hesaplasaydık bu satır çıkmazdı.
 
+Okuma tarafında üç çapraz başvuru biçimi de destekleniyor: klasik `xref`
+tablosu, çapraz başvuru akışı, ve PNG öngörücülü akış — sonuncusu modern
+üreticilerin varsayılanı ve geri alınmazsa tablo **sessizce** yanlış okunur.
+
 ## ASiC — imzalı konteyner
 
 Belgeyi ve imzasını **tek dosyada** taşımak için. ASiC imza üretmez,
-paketler: içine konan imza XAdES de olabilir CAdES de, konteyner içeriğine
-bakmaz. Standardın kendi ayrımı bu — ASiC bir imza biçimi değil, taşıma
-biçimidir.
+paketler: içine konan imza XAdES de olabilir CAdES de. Standardın kendi
+ayrımı bu — ASiC bir imza biçimi değil, taşıma biçimidir.
 
 ```ts
 import { cadesSign, createAsic, readAsic, cadesVerify } from '@yankikucuk/e-imza'
@@ -902,24 +870,16 @@ canonicalize(doc, { algorithm: 'exc-c14n', omit: new Set([imzaOgesi]) })
 Doğrulaması iki bağımsız kaynağa dayanıyor:
 
 - **W3C `REC-xml-c14n-20010315` §3.1–3.6 uygunluk vektörleri.** Beklenen
-  çıktılar spesifikasyondan birebir alındı. `xadesjs#12` bu testleri
-  2016'dan beri istiyordu.
+  çıktılar spesifikasyondan birebir alındı.
 - **libxml2 ile fark testi.** Dokuz belge, iki algoritma, bayt bayt aynı
-  sonuç. Kendi testlerimiz kendi yorumumuzu paylaşabilir; libxml2
-  paylaşmaz.
+  sonuç. Kendi testlerimiz kendi yorumumuzu paylaşabilir; libxml2 paylaşmaz.
 
-Alt küme kanonikleştirmesinde — yani imza yolunda — ölçülen durum
-(Eylül 2026):
-
-|                            | tam belge | alt küme              |
-| -------------------------- | --------- | --------------------- |
-| xmldsigjs 2.8.8, kapsayıcı | ✓ 8/8     | **✗ 4'te 3'ü yanlış** |
-| xmldsigjs 2.8.8, dışlayıcı | ✓ 8/8     | ✓ 4/4                 |
-| **bu paket**               | ✓ 8/8     | ✓ 4/4                 |
-
-Kapsayıcı biçimde ata ad alanı bildirimleri tepe öğeye taşınmalı ve ata
-`xml:*` öznitelikleri miras alınmalıdır (C14N 1.0 §2.4). `SignedProperties`
-referansı **her zaman** belge ortasında bir alt kümedir.
+**Alt küme** kanonikleştirmesi — yani imza yolunun tam ortası — bu işin en
+sık sessizce yanlış yapılan adımıdır. Kapsayıcı biçimde ata ad alanı
+bildirimleri tepe öğeye taşınmalı ve ata `xml:*` öznitelikleri miras
+alınmalıdır (C14N 1.0 §2.4). `SignedProperties` referansı **her zaman**
+belge ortasında bir alt kümedir; bu paket dört alt küme vektörünün dördünü
+de her iki algoritmada geçiyor.
 
 ## Kapsam
 
@@ -927,12 +887,13 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 |                     |                                                            |
 | ------------------- | ---------------------------------------------------------- |
-| **XAdES**           | BES, EPES, T, **LT**, **LTA** — beş seviye                 |
-| **CAdES**           | BES, EPES, T, LT, **LTA** — `archive-time-stamp-v3`        |
-| **PAdES**           | B-B, B-T, **B-LT**, **B-LTA** — `/DSS` ve `/DocTimeStamp`  |
+| **XAdES**           | BES, EPES, T, LT, LTA — beş seviye                         |
+| **CAdES**           | BES, EPES, T, LT, LTA — `archive-time-stamp-v3`            |
+| **PAdES**           | B-B, B-T, B-LT, B-LTA — `/DSS` ve `/DocTimeStamp`          |
+| **ASiC**            | ASiC-S ve ASiC-E, `ASiCManifest` üretimi ve doğrulaması    |
 | **Zaman damgası**   | RFC 3161 — istek üretme, jeton doğrulama, seviye yükseltme |
 | **İptal denetimi**  | RFC 6960 OCSP — istek üretme, yanıt doğrulama              |
-| **CMS**             | RFC 5652 `SignedData` okuma ve doğrulama                   |
+| **CMS**             | RFC 5652 `SignedData` okuma, üretme ve doğrulama           |
 | **Yerleşim**        | `ubl-extension` (UBL-TR), `enveloped`                      |
 | **Kanonikleştirme** | Canonical XML 1.0, Exclusive C14N, ±yorumlar               |
 | **Özet**            | SHA-256, SHA-384, SHA-512                                  |
@@ -943,6 +904,12 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
+**PKCS#11 sürücüsüne doğrudan erişim** — ayrı bir pakete taşınıyor:
+`@yankikucuk/e-imza-pkcs11`. Yerleşik destek yerel bir eklenti gerektirdiği
+için bu paketin sıfır bağımlılık ilkesini kırardı; ayrı paket olarak
+isteyen kurar, istemeyen etkilenmez. Bugün de kullanılabilir:
+`prepare()` / `complete()` ile kendi PKCS#11 katmanınızı bağlayın.
+
 **CAdES ATSv2 arşiv damgası** — ATSv3 üretiliyor ve doğrulanıyor; ATSv2'nin
 girdi hesabı farklı (TS 101 733 v1.8.3 §6.4.1) ve bağımsız doğrulama olmadan
 yazılmadı. Belgede varsa uyarı çıkıyor, seviye yükseltmiyor.
@@ -952,9 +919,9 @@ malzeme her imzaya bağlanıyor. Hangi sertifikanın hangi imzaya ait olduğunu
 çağıran bilir, kütüphane bilmez; yanlış eşleştirmektense hepsini göstermek
 seçildi. Tek imzalı belgelerde — pratikte e-Fatura'nın tamamı — fark yok.
 
-**CRL'lerle PAdES-LT** — CRL'ler `/DSS`e gömülebiliyor ama içerikleri
-çözümlenmediği için doğrulama tarafı onları iptal kanıtı olarak
-DEĞERLENDİRMİYOR; seviye yalnızca OCSP yoluyla yükseliyor.
+**CRL ayrıştırma** — CRL'ler LT seviyesine ve `/DSS`e gömülebiliyor ama
+içerikleri çözümlenmediği için doğrulama tarafı onları iptal kanıtı olarak
+değerlendirmiyor; seviye yalnızca OCSP yoluyla yükseliyor.
 
 **ASiC-E'de XAdES manifesti** — ASiC-E + CAdES için `ASiCManifest` üretiliyor
 ve okunurken özetleri doğrulanıyor. XAdES tarafında imza dosyaların kendisine
@@ -966,14 +933,6 @@ konteyner ya da parola korumalı arşiv desteklenmiyor.
 
 **Şifreli PDF** — imza eklemek belgeyi çözmeyi gerektirir; açıkça
 reddediliyor.
-
-**CRL ayrıştırma** — CRL'ler LT seviyesine gömülebiliyor ama içerikleri
-çözümlenmiyor; iptal denetimi için OCSP yolu tam.
-
-**PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. **Sıradaki iş.** Bugün de
-kullanılabilirler: `prepare()` / `complete()` ile kendi PKCS#11
-katmanınızı bağlayın. Yerleşik destek, yerel eklenti derlemesi gerektirdiği
-için sıfır bağımlılık ilkesiyle ayrıca değerlendirilecek.
 
 **Genel XPath** — ve eklenmesi planlanmıyor. İmza kapsamını belirleyen bir
 ifadeyi yaklaşık değerlendirmek, imzanın kapsamadığı içeriği kapsıyormuş
@@ -1028,7 +987,7 @@ kendi öğesini koyup imzanın kapsamını kaydırmasına izin vermektir — imz
 sarma (signature wrapping) saldırısının klasik biçimi.
 
 **Okurken hoşgörülü, yazarken katı.** Parçalara bölünmüş `OCTET STRING`
-DER'de geçersizdir ama `pkijs` ile üretilmiş kaplarda vardır; okunuyor.
+DER'de geçersizdir ama bazı araçların ürettiği kaplarda bulunur; okunuyor.
 Yazarken her zaman ilkel biçim üretiliyor.
 
 **Ata işaretçisi yok.** Kanonikleştirici belgeyi kökten dolaşıp ad alanı
@@ -1085,10 +1044,15 @@ Zaman damgası ve OCSP çevrimdışı sunucularla sınanıyor (`openssl ts -repl
 `openssl ocsp -index`) — testler hiçbir zaman ağa çıkmaz. Araç yoksa ilgili
 testler atlanır; CI'da dördü de kurulu ve varlıkları ayrıca iddia ediliyor.
 
-Anahtar malzemesi depoda tutulmaz, her koşuda geçici dizinde üretilir.
-Eski biçim kapları macOS'un sistem LibreSSL'iyle, modern olanlar OpenSSL 3
+Anahtar malzemesi depoda tutulmaz, her koşuda geçici dizinde üretilir. Eski
+biçim kapları macOS'un sistem TLS kütüphanesiyle, modern olanlar OpenSSL 3
 ile yazılır — bir kütüphanenin ikisini birden açabildiği ancak ikisini
 birden üreterek gösterilebilir.
+
+Her sürümde mutasyon denemesi yapılıyor: koda kasıtlı hatalar konup testlerin
+onları yakalayıp yakalamadığı ölçülüyor. Tekrar eden tuzak şu — **üretici ile
+doğrulayıcı aynı bizsek, ikisi aynı yanlışı yaptığında testler geçer.** Bu
+yüzden kritik yerlerde beklenen değer bağımsız bir araca hesaplatılıyor.
 
 ## Güvenlik
 

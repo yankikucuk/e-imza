@@ -1,6 +1,6 @@
 {
   "name": "@yankikucuk/e-imza",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "XAdES elektronik imza için sıfır bağımlılıklı TypeScript kütüphanesi — kanonikleştirme, PKCS#12, imzalama, doğrulama",
   "keywords": [
     "xades",
