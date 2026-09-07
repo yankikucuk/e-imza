@@ -176,14 +176,19 @@ export const childElements = (element: XmlElement): readonly XmlElement[] =>
 /**
  * Belirli ada sahip doğrudan alt öğeleri verir.
  *
+ * `namespace` olarak `undefined` verilmesi "ad alanısız öğe" demektir; boş
+ * dize DEĞİL. Ad alanısız öğeler geçerlidir ve onları aramanın bir yolu
+ * olmalı — imza yapıları ad alanlıdır ama imzalanan belge her zaman öyle
+ * değildir.
+ *
  * @param element - Kaynak öğe
- * @param namespace - Aranan ad alanı URI'si
+ * @param namespace - Aranan ad alanı URI'si; ad alanısız öğeler için `undefined`
  * @param localName - Aranan yerel ad
  * @returns Eşleşen alt öğeler
  */
 export const childrenNamed = (
   element: XmlElement,
-  namespace: string,
+  namespace: string | undefined,
   localName: string,
 ): readonly XmlElement[] =>
   childElements(element).filter(
@@ -194,13 +199,13 @@ export const childrenNamed = (
  * Belirli ada sahip ilk doğrudan alt öğeyi verir.
  *
  * @param element - Kaynak öğe
- * @param namespace - Aranan ad alanı URI'si
+ * @param namespace - Aranan ad alanı URI'si; ad alanısız öğeler için `undefined`
  * @param localName - Aranan yerel ad
  * @returns İlk eşleşen alt öğe ya da `undefined`
  */
 export const childNamed = (
   element: XmlElement,
-  namespace: string,
+  namespace: string | undefined,
   localName: string,
 ): XmlElement | undefined => childrenNamed(element, namespace, localName)[0]
 
