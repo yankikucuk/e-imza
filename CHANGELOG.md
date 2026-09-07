@@ -3,6 +3,59 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.2.0] — 2026-09-07
+
+XAdES-LT ve LTA. Beş seviyenin tamamı hazır.
+
+### Eklendi
+
+- `upgrade({ to: 'LT', certificates, ocspResponses, crls })` — zinciri ve
+  iptal kanıtını `xades:CertificateValues` / `xades:RevocationValues`
+  altına gömer
+- `archiveTimestampRequest()` ve `upgrade({ to: 'LTA', token })` — imzanın
+  ve o ana kadarki bütün imzalanmamış özelliklerin tamamını kapsayan arşiv
+  zaman damgası
+- RFC 6960 OCSP: `buildOcspRequest()`, `parseOcspResponse()`,
+  `verifyOcspResponse()`
+- Sertifika uzantıları: `ocspResponderUrls()`, `crlDistributionUrls()`,
+  `caIssuerUrls()`, `certificateExtension()`
+- `verify()` arşiv damgalarını da doğruluyor; `TimestampResult` artık
+  `kind: 'signature' | 'archive'` taşıyor
+
+### Kararlar
+
+- **LT, iptal kanıtı olmadan reddediliyor.** Yalnızca zincir gömmek imzayı
+  sertifikaların süresi dolduktan sonra doğrulanabilir kılmaz; sessizce
+  kabul etmek sahte bir uzun-dönem güvencesi vermek olurdu
+- **LTA seviyesi doğrulanmış bir ARŞİV damgası istiyor.** `SignatureTimeStamp`
+  yeterli değil; yapıya bakıp LTA demek damganın amacını ortadan kaldırırdı
+- **OCSP `CertID` özeti varsayılan SHA-1.** Bu, paketin "SHA-1 yok"
+  ilkesinin bilinçli istisnası: buradaki özet bir güvenlik özeti değil,
+  yanıtlayıcının hangi sertifikanın sorulduğunu bulmasına yarayan bir
+  adlandırma özeti. RFC 6960 SHA-1 desteğini şart koşuyor ve sahadaki
+  yanıtlayıcılar ezici çoğunlukla başka bir şey kabul etmiyor
+
+### Doğrulama
+
+OCSP, çevrimdışı bir OpenSSL yanıtlayıcısıyla iki yönde sınandı: ürettiğimiz
+isteği OpenSSL okuyup imzalı yanıt üretiyor, yanıtını biz doğruluyoruz.
+Hem "good" hem "revoked" durumu kapsanıyor.
+
+On iki mutasyon denendi. İkisi ilk turda yakalanmadı ve ikisi de aynı
+tuzağın örneğiydi: arşiv damgasını hem üreten hem doğrulayan biz olduğumuz
+için, girdiden `ds:SignatureValue`yu ya da referans verisini çıkarmak
+hiçbir testi düşürmüyordu — iki taraf aynı yanlışı yapıyordu. Girdinin
+BİLEŞİMİNİ doğrudan sabitleyen ayrı bir iddia eklendi.
+
+### Bilinen sınır
+
+Arşiv damgasının girdi hesabı ETSI TS 101 903 v1.4.2 §8.2.1 uyarınca
+yapılıyor; EN 319 132 farklı bir tanım verir. Zaman damgasının kendisi
+OpenSSL ile çapraz doğrulandı, ama arşiv girdisinin hesabı bağımsız bir
+uygulamayla doğrulanamadı.
+
+328 test.
+
 ## [1.1.0] — 2026-09-07
 
 XAdES-T: RFC 3161 zaman damgası ve CMS okuma.
@@ -110,5 +163,6 @@ hesaplandığı için `eContent`e dokunmak onu düşürmez. Testi eklendi.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
+[1.2.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.2.0
 [1.1.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.0.0

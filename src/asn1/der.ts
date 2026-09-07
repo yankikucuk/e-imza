@@ -423,6 +423,15 @@ export const derSetOf = (...items: readonly Uint8Array[]): Uint8Array => {
   return encodeDer('universal', true, DerTag.SET, concat(...sorted))
 }
 
+/**
+ * Bağlama özgü açık (`EXPLICIT [n]`) sarmalayıcı üretir.
+ *
+ * @param tagNumber - Etiket numarası
+ * @param items - Sarmalanacak kodlanmış değerler
+ */
+export const derExplicit = (tagNumber: number, ...items: readonly Uint8Array[]): Uint8Array =>
+  encodeDer('context', true, tagNumber, concat(...items))
+
 /** `BOOLEAN` üretir. */
 export const derBoolean = (value: boolean): Uint8Array =>
   encodeDer('universal', false, DerTag.BOOLEAN, new Uint8Array([value ? 0xff : 0x00]))

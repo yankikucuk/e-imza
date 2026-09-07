@@ -68,6 +68,22 @@ export const xades = (
 ): XmlElement =>
   element(Namespace.XADES, Prefix.XADES, localName, children, attributes, namespaceDeclarations)
 
+/** `xades141:` ad alanında öğe — arşiv zaman damgası için. */
+export const xades141 = (
+  localName: string,
+  children: readonly (XmlNode | undefined)[] = [],
+  attributes: readonly XmlAttribute[] = [],
+  namespaceDeclarations: readonly XmlNamespaceDeclaration[] = [],
+): XmlElement =>
+  element(
+    Namespace.XADES_141,
+    Prefix.XADES_141,
+    localName,
+    children,
+    attributes,
+    namespaceDeclarations,
+  )
+
 /** Metin içerikli `xades:` öğesi. */
 export const xadesText = (
   localName: string,

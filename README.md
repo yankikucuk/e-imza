@@ -1,10 +1,10 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.1.0 — kararlı.** XAdES-BES/EPES/**T** imzalama ve doğrulama,
-> RFC 3161 zaman damgası, CMS okuma, kanonikleştirme, PKCS#12 kap okuma,
-> ayrık imzalama ve paralel imza hazır. Public API kararlıdır; kırıcı
-> değişiklik ana sürüm yükseltir. LT, LTA, CAdES, PAdES ve ASiC yol
-> haritasında ve hepsi katkısal — mevcut çağrılarınızı bozmayacaklar.
+> **Durum: 1.2.0 — kararlı.** XAdES'in **beş seviyesi de** hazır:
+> BES, EPES, T, LT, LTA. Yanında RFC 3161 zaman damgası, RFC 6960 OCSP,
+> CMS okuma, kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel
+> imza. Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir.
+> CAdES, PAdES ve ASiC yol haritasında ve katkısal.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
@@ -359,6 +359,98 @@ damgaladığı bilinmez**; `nonce` vermezseniz yanıt tekrar oynatmaya açık
 kalır. İkisi de isteğe bağlı, ama ikisini birden atlamak damgayı büyük
 ölçüde anlamsızlaştırır.
 
+## Uzun dönem: LT ve LTA
+
+Zaman damgası imzanın **ne zaman** atıldığını kanıtlar; LT ve LTA imzanın
+**yıllar sonra da doğrulanabilir** kalmasını sağlar.
+
+Sorun şu: bugün geçerli olan sertifikanın beş yıl sonra süresi dolmuş
+olacak ve "imza atıldığı anda bu sertifika iptal edilmiş miydi?" sorusunun
+cevabı hiçbir yerde bulunamayacak — OCSP yanıtlayıcıları geçmişi saklamaz.
+**LT** o cevabı imzanın içine gömer. **LTA** ise gömülen kanıtın da üstüne
+bir arşiv damgası atar, çünkü OCSP yanıtını imzalayan sertifikanın da bir
+gün süresi dolar.
+
+### LT — zincir ve iptal kanıtı
+
+```ts
+import {
+  buildOcspRequest,
+  ocspResponderUrls,
+  parseOcspResponse,
+  upgrade,
+  verifyOcspResponse,
+} from '@yankikucuk/e-imza'
+
+// 1. İptal kanıtını al. Yanıtlayıcının adresi sertifikanın içinde yazılı.
+const [adres] = ocspResponderUrls(certificate)
+const istek = buildOcspRequest({ certificate, issuer: araCa, nonce })
+const ham = await fetch(adres!, {
+  method: 'POST',
+  headers: { 'content-type': 'application/ocsp-request' },
+  body: istek,
+})
+const yanit = parseOcspResponse(new Uint8Array(await ham.arrayBuffer()))
+
+// 2. Gömmeden ÖNCE doğrula: yanıt gerçekten bu sertifikaya mı ait?
+const durum = verifyOcspResponse(yanit, { certificate, issuer: araCa, nonce })
+if (!durum.valid) throw new Error(durum.reason)
+if (durum.certificateStatus.status !== 'good') throw new Error('Sertifika iptal edilmiş')
+
+// 3. Zinciri ve kanıtı imzaya göm.
+const lt = upgrade({
+  xml: damgali,
+  to: 'LT',
+  certificates: [araCa, kokCa],
+  ocspResponses: [yanit.der],
+})
+
+verify(lt).level // 'LT'
+```
+
+Yalnızca zincir gömmek LT sayılmaz: iptal kanıtı olmadan imza yine
+doğrulanamaz. `upgrade()` bu yüzden en az bir OCSP yanıtı ya da CRL ister
+ve yoksa açık hata verir — sessizce kabul etmek, kullanıcıya sahte bir
+uzun-dönem güvencesi vermek olurdu.
+
+### LTA — arşiv damgası
+
+```ts
+import { archiveTimestampRequest, upgrade } from '@yankikucuk/e-imza'
+
+const istek = archiveTimestampRequest({ xml: lt })
+// … TSA'ya gönder, jetonu al …
+const lta = upgrade({ xml: lt, to: 'LTA', token: jeton })
+
+verify(lta).level // 'LTA'
+```
+
+Arşiv damgası imzanın **ve o ana kadarki bütün imzalanmamış özelliklerin**
+tamamını kapsar — LT verisi dâhil. Gömülen OCSP yanıtının tek bir baytı
+değişse arşiv damgası tutmaz. Damga periyodik olarak yenilenebilir; her
+yeni damga bir öncekini de kapsar.
+
+`verify()` her damgayı ayrı raporlar:
+
+```ts
+const sonuc = verify(lta)
+sonuc.timestamps.map((d) => [d.kind, d.valid])
+// [['signature', true], ['archive', true]]
+```
+
+### Hangi tanım — ve sınırı
+
+Arşiv damgasının girdi hesabı **ETSI TS 101 903 v1.4.2 §8.2.1** uyarınca
+yapılıyor. EN 319 132 farklı bir girdi tanımlar; ikisi uyumlu değildir ve
+bu paket TS 101 903'ü uygular.
+
+Dürüst olmak gerekirse: zaman damgasının **kendisi** OpenSSL ile iki yönde
+sınandı, ama arşiv damgasının **girdi hesabı** bağımsız bir uygulamayla
+çapraz doğrulanamadı. Riski karşılamak için girdinin bileşimi doğrudan
+teste bağlandı — hangi parçaların hangi sırayla girdiğini sabitleyen ayrı
+bir iddia var. Yine de, LTA imzalarınızı üretime almadan önce karşı tarafın
+doğrulayıcısıyla denemenizi öneririm.
+
 ## Kanonikleştirme
 
 Kanonikleştirici ayrıca kullanılabilir. **Canonical XML 1.0** ve
@@ -404,8 +496,9 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 |                     |                                                            |
 | ------------------- | ---------------------------------------------------------- |
-| **XAdES**           | BES, EPES, **T**                                           |
+| **XAdES**           | BES, EPES, T, **LT**, **LTA** — beş seviye                 |
 | **Zaman damgası**   | RFC 3161 — istek üretme, jeton doğrulama, seviye yükseltme |
+| **İptal denetimi**  | RFC 6960 OCSP — istek üretme, yanıt doğrulama              |
 | **CMS**             | RFC 5652 `SignedData` okuma ve doğrulama                   |
 | **Yerleşim**        | `ubl-extension` (UBL-TR), `enveloped`                      |
 | **Kanonikleştirme** | Canonical XML 1.0, Exclusive C14N, ±yorumlar               |
@@ -417,17 +510,14 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**XAdES-LT / LTA** — sertifika zinciri ve iptal verisinin (CRL/OCSP)
-imzaya gömülmesi, ve o veriyi de kapsayan arşiv zaman damgası. Amaçları,
-imzayı sertifikaların süresi dolduktan sonra da doğrulanabilir kılmak.
-LT, OCSP ve CRL almayı gerektiriyor; API yine `timestampRequest()` /
-`upgrade()` deseninde olacak — istek baytlarını biz üretiriz, ağ çağrısını
-siz yaparsınız. LTA, LT'nin üstüne oturuyor.
-
 **CAdES, PAdES, ASiC** — sırasıyla ikili veri, PDF ve konteyner imzası.
 CAdES, XAdES-T ile birlikte yazılan CMS çekirdeğinin üstüne oturuyor;
 PAdES CAdES'i yeniden kullanıyor. Sıra bu yüzden doğal:
-**LT → LTA → CAdES → PAdES → ASiC**.
+**CAdES → PAdES → ASiC**.
+
+**CRL ayrıştırma** — CRL'ler LT seviyesine gömülebiliyor ama içerikleri
+çözümlenmiyor; iptal denetimi için OCSP yolu tam. CRL çözümlemesi
+CAdES ile birlikte gelecek.
 
 **PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. Bugün de
 kullanılabilirler: `prepare()` / `complete()` ile kendi PKCS#11
@@ -517,7 +607,7 @@ PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
 
 ```bash
 npm install
-npm test              # 296 test
+npm test              # 328 test
 npm run test:coverage
 npm run typecheck
 npm run lint

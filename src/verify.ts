@@ -9,6 +9,7 @@ import { fromBase64, timingSafeEqual } from './core/bytes.js'
 import { VerificationError } from './core/errors.js'
 import { readCertificate, type CertificateInfo } from './pki/certificate.js'
 import { verifyTimestampToken } from './pki/tsp.js'
+import { archiveTimestampInput, encapsulatedToken } from './xades/archive.js'
 import {
   DIGEST_NODE_NAME,
   DIGEST_URI,
@@ -61,8 +62,17 @@ export interface VerificationWarning {
   readonly message: string
 }
 
-/** Belgedeki bir `xades:SignatureTimeStamp` öğesinin doğrulama sonucu. */
+/** Belgedeki bir zaman damgası öğesinin doğrulama sonucu. */
 export interface TimestampResult {
+  /**
+   * Damganın türü.
+   *
+   * - `signature` — `xades:SignatureTimeStamp`; yalnızca
+   *   `ds:SignatureValue`yu kapsar (T seviyesi).
+   * - `archive` — `xades141:ArchiveTimeStamp`; imzanın ve o ana kadarki
+   *   bütün imzalanmamış özelliklerin tamamını kapsar (LTA seviyesi).
+   */
+  readonly kind: 'signature' | 'archive'
   /** Öğenin `Id` özniteliği, varsa. */
   readonly id?: string
   /** Jeton kriptografik olarak doğrulandı ve BU imzayı damgalıyor mu. */
@@ -331,14 +341,19 @@ const verifyTimestamps = (
 ): readonly TimestampResult[] => {
   const results: TimestampResult[] = []
   for (const element of walkElements(signature)) {
-    if (element.namespace !== Namespace.XADES || element.localName !== 'SignatureTimeStamp') {
-      continue
-    }
-    const id = getAttributeValue(element, 'Id')
-    const base = id === undefined ? {} : { id }
+    const kind: 'signature' | 'archive' | undefined =
+      element.namespace === Namespace.XADES && element.localName === 'SignatureTimeStamp'
+        ? 'signature'
+        : element.namespace === Namespace.XADES_141 && element.localName === 'ArchiveTimeStamp'
+          ? 'archive'
+          : undefined
+    if (kind === undefined) continue
 
-    const encapsulated = childNamed(element, Namespace.XADES, 'EncapsulatedTimeStamp')
-    if (encapsulated === undefined) {
+    const id = getAttributeValue(element, 'Id')
+    const base = { kind, ...(id === undefined ? {} : { id }) }
+
+    const token = encapsulatedToken(element)
+    if (token === undefined) {
       results.push({ ...base, valid: false, reason: 'xades:EncapsulatedTimeStamp yok.' })
       continue
     }
@@ -358,8 +373,16 @@ const verifyTimestamps = (
       continue
     }
 
-    const stamped = canonicalizeToBytes(document, { algorithm, subset: signatureValueElement })
-    const outcome = verifyTimestampToken(fromBase64(textContent(encapsulated)), { data: stamped })
+    // İmza damgası yalnızca ds:SignatureValue'yu kapsar; arşiv damgası
+    // imzanın ve KENDİSİNDEN ÖNCEKİ imzalanmamış özelliklerin tamamını.
+    // `before` parametresi olmadan arşiv damgası kendi kendini kapsamaya
+    // çalışır ve hiçbir zaman doğrulanmaz.
+    const stamped =
+      kind === 'signature'
+        ? canonicalizeToBytes(document, { algorithm, subset: signatureValueElement })
+        : archiveTimestampInput(document, signature, algorithm, element).bytes
+
+    const outcome = verifyTimestampToken(token, { data: stamped })
     results.push(
       outcome.valid
         ? {
@@ -570,8 +593,11 @@ const detectLevel = (
       names.add(element.localName)
     }
   }
-  const timestamped = timestamps.some((timestamp) => timestamp.valid)
-  if (names.has('ArchiveTimeStamp') && timestamped) return 'LTA'
+  const timestamped = timestamps.some(
+    (timestamp) => timestamp.valid && timestamp.kind === 'signature',
+  )
+  const archived = timestamps.some((timestamp) => timestamp.valid && timestamp.kind === 'archive')
+  if (archived) return 'LTA'
   if ((names.has('CertificateValues') || names.has('RevocationValues')) && timestamped) return 'LT'
   if (timestamped) return 'T'
   if (names.has('SignaturePolicyIdentifier')) return 'EPES'

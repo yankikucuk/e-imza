@@ -47,6 +47,27 @@ export interface KeyMaterial {
   readonly emptyPassword: KeyFixture
   /** Çevrimdışı zaman damgası otoritesi. */
   readonly tsa: TsaFixture
+  /** Çevrimdışı OCSP yanıtlayıcısı. */
+  readonly ocsp: OcspFixture
+  /** `withChain` kabındaki uç sertifikayı düzenleyen ara CA (DER). */
+  readonly intermediateCertificate: Uint8Array
+  /** Kök CA (DER). */
+  readonly rootCertificate: Uint8Array
+}
+
+/**
+ * Çevrimdışı bir OCSP yanıtlayıcısı.
+ *
+ * `openssl ocsp -index …` gerçek, imzalı bir yanıt üretebiliyor — ağ
+ * gerekmiyor. Zaman damgasında olduğu gibi iki yön birden sınanabiliyor:
+ * ürettiğimiz isteği OpenSSL okuyabiliyor mu, ve OpenSSL'in ürettiği
+ * yanıtı biz doğrulayabiliyor muyuz.
+ */
+export interface OcspFixture {
+  /** Bir `OCSPRequest` için imzalı `OCSPResponse` üretir. */
+  readonly respond: (request: Uint8Array, revoked?: boolean) => Uint8Array
+  /** Yanıtları imzalayan sertifika (DER) — burada ara CA'nın kendisi. */
+  readonly responderCertificate: Uint8Array
 }
 
 /**
@@ -201,8 +222,65 @@ export const keyMaterial = (): KeyMaterial => {
       label: 'OpenSSL 3 — parolasız',
     },
     tsa: buildTsa(dir, at, run),
+    ocsp: buildOcsp(dir, at, run),
+    intermediateCertificate: (() => {
+      run(MODERN, ['x509', '-in', at('ara.crt'), '-outform', 'DER', '-out', at('ara.der')])
+      return new Uint8Array(readFileSync(at('ara.der')))
+    })(),
+    rootCertificate: (() => {
+      run(MODERN, ['x509', '-in', at('ca.crt'), '-outform', 'DER', '-out', at('ca-kok.der')])
+      return new Uint8Array(readFileSync(at('ca-kok.der')))
+    })(),
   }
   return cached
+}
+
+/**
+ * Çevrimdışı bir OCSP yanıtlayıcısı kurar.
+ *
+ * Yanıtları ARA CA imzalıyor — uç sertifikayı düzenleyen de o olduğu için
+ * bu, RFC 6960'ın "yanıtlayıcı düzenleyenin kendisidir" durumu. Yetki
+ * denetimi bu kütüphanenin kapsamı dışında olduğu için ayrı bir
+ * `id-kp-OCSPSigning` sertifikası kurmaya gerek yok.
+ */
+const buildOcsp = (
+  dir: string,
+  at: (name: string) => string,
+  run: (binary: string, args: readonly string[]) => void,
+): OcspFixture => {
+  // OpenSSL'in dizin dosyası: durum, son kullanma, iptal tarihi, seri, dosya, konu.
+  const serial = execFileSync(MODERN, ['x509', '-in', at('uc.crt'), '-noout', '-serial'], {
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('=')[1]
+  const subject = '/C=TR/O=Ornek Sirket A.S./CN=Ornek Mali Muhur/serialNumber=1234567890'
+  writeFileSync(
+    at('index-gecerli.txt'),
+    `V\t300101000000Z\t\t${serial ?? ''}\tunknown\t${subject}\n`,
+  )
+  writeFileSync(
+    at('index-iptal.txt'),
+    `R\t300101000000Z\t250101000000Z,keyCompromise\t${serial ?? ''}\tunknown\t${subject}\n`,
+  )
+  run(MODERN, ['x509', '-in', at('ara.crt'), '-outform', 'DER', '-out', at('ara-ocsp.der')])
+
+  let counter = 0
+  return {
+    respond: (request: Uint8Array, revoked = false): Uint8Array => {
+      counter += 1
+      const query = join(dir, `ocsp-req-${String(counter)}.der`)
+      const reply = join(dir, `ocsp-resp-${String(counter)}.der`)
+      writeFileSync(query, request)
+      // prettier-ignore
+      run(MODERN, ['ocsp',
+        '-index', at(revoked ? 'index-iptal.txt' : 'index-gecerli.txt'),
+        '-CA', at('ara.crt'), '-rsigner', at('ara.crt'), '-rkey', at('ara.key'),
+        '-reqin', query, '-respout', reply, '-nmin', '60'])
+      return new Uint8Array(readFileSync(reply))
+    },
+    responderCertificate: new Uint8Array(readFileSync(at('ara-ocsp.der'))),
+  }
 }
 
 /** TSA politika OID'i — testin kendi ayırdığı, kayıtlı olmayan bir dal. */

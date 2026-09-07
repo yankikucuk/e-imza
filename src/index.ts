@@ -74,11 +74,15 @@ export {
 
 /* ── Seviye yükseltme (XAdES-T) ────────────────────────────────────────── */
 export {
+  archiveTimestampRequest,
   timestampRequest,
   upgrade,
   type TimestampRequestInput,
   type TimestampTarget,
   type UpgradeOptions,
+  type UpgradeToArchive,
+  type UpgradeToLongTerm,
+  type UpgradeToTimestamp,
 } from './upgrade.js'
 
 /* ── Zaman damgası (RFC 3161) ─────────────────────────────────────────── */
@@ -92,6 +96,28 @@ export {
   type TstInfo,
   type VerifyTimestampOptions,
 } from './pki/tsp.js'
+
+/* ── İptal denetimi (OCSP, RFC 6960) ──────────────────────────────────── */
+export {
+  buildOcspRequest,
+  parseOcspResponse,
+  verifyOcspResponse,
+  type CertificateStatus,
+  type OcspRequestOptions,
+  type OcspResponse,
+  type OcspVerification,
+  type SingleOcspResponse,
+  type VerifyOcspOptions,
+} from './pki/ocsp.js'
+
+/* ── Sertifika uzantıları ─────────────────────────────────────────────── */
+export {
+  caIssuerUrls,
+  certificateExtension,
+  certificateExtensions,
+  crlDistributionUrls,
+  ocspResponderUrls,
+} from './pki/extensions.js'
 
 /* ── CMS (RFC 5652) ───────────────────────────────────────────────────── */
 export {

@@ -9,8 +9,9 @@ import {
 import { toBase64, wrapBase64 } from './core/bytes.js'
 import { SigningError } from './core/errors.js'
 import { buildTimestampRequest, verifyTimestampToken } from './pki/tsp.js'
-import { DIGEST_NODE_NAME, Namespace, type DigestAlgorithm } from './xades/constants.js'
-import { attribute, ds, xades } from './xades/element.js'
+import { archiveTimestampInput } from './xades/archive.js'
+import { DIGEST_NODE_NAME, Namespace, Prefix, type DigestAlgorithm } from './xades/constants.js'
+import { attribute, ds, xades, xades141 } from './xades/element.js'
 import { digest } from './xades/signature.js'
 import { replaceElement } from './xml/edit.js'
 import {
@@ -24,10 +25,7 @@ import { parseXml } from './xml/parse.js'
 import { serializeXml } from './xml/serialize.js'
 
 /**
- * XAdES seviye yükseltme.
- *
- * Şu an yalnızca **T** (zaman damgası) destekleniyor. LT ve LTA — sertifika
- * ve iptal verisinin gömülmesi — yol haritasında.
+ * XAdES seviye yükseltme — **T**, **LT** ve **LTA**.
  *
  * ## Neden imzayı bozmuyor
  *
@@ -115,9 +113,8 @@ export const timestampRequest = (options: TimestampRequestInput): Uint8Array => 
   })
 }
 
-/** {@link upgrade} seçenekleri. */
-export interface UpgradeOptions extends TimestampTarget {
-  /** Hedef seviye. Şu an yalnızca `'T'`. */
+/** T seviyesine yükseltme seçenekleri. */
+export interface UpgradeToTimestamp extends TimestampTarget {
   readonly to: 'T'
   /** TSA'dan alınan zaman damgası jetonu (CMS `ContentInfo` DER'i). */
   readonly token: Uint8Array
@@ -135,13 +132,215 @@ export interface UpgradeOptions extends TimestampTarget {
 }
 
 /**
- * İmzayı zaman damgasıyla T seviyesine yükseltir.
+ * LT seviyesine yükseltme seçenekleri.
  *
- * @param options - {@link UpgradeOptions}
+ * LT, imzayı **sertifikaların süresi dolduktan sonra da** doğrulanabilir
+ * kılar: doğrulayan tarafın ihtiyaç duyacağı her şey — zincir ve iptal
+ * kanıtı — imzanın içine gömülür. Aksi hâlde beş yıl sonra "bu sertifika
+ * imza anında iptal edilmiş miydi?" sorusunun cevabı hiçbir yerde
+ * bulunamaz; OCSP yanıtlayıcıları geçmişi saklamaz.
+ */
+export interface UpgradeToLongTerm extends TimestampTarget {
+  readonly to: 'LT'
+  /**
+   * Gömülecek sertifikalar (DER) — uçtan köke doğru zincirin tamamı.
+   *
+   * İmzalayan sertifika `ds:KeyInfo` içinde zaten var; buraya ara ve kök
+   * sertifikalar konur. Yinelenenler ayıklanır.
+   */
+  readonly certificates: readonly Uint8Array[]
+  /** Gömülecek OCSP yanıtları (`OCSPResponse` DER'i). */
+  readonly ocspResponses?: readonly Uint8Array[]
+  /** Gömülecek sertifika iptal listeleri (`CertificateList` DER'i). */
+  readonly crls?: readonly Uint8Array[]
+}
+
+/**
+ * LTA seviyesine yükseltme seçenekleri.
+ *
+ * Arşiv zaman damgası, imzanın ve LT verisinin **tamamını** kapsar ve
+ * periyodik olarak yenilenir. Gerekçesi şu: LT'de gömdüğünüz OCSP yanıtını
+ * imzalayan sertifikanın da bir gün süresi dolar; arşiv damgası o zinciri
+ * kırılmadan uzatır.
+ */
+export interface UpgradeToArchive extends TimestampTarget {
+  readonly to: 'LTA'
+  /** TSA'dan alınan zaman damgası jetonu. */
+  readonly token: Uint8Array
+  /** Jetonun bu arşiv girdisini damgaladığı doğrulansın mı. Varsayılan `true`. */
+  readonly verifyToken?: boolean
+  /** `xades141:ArchiveTimeStamp` öğesinin kimliği; verilmezse üretilir. */
+  readonly timestampId?: string
+}
+
+/**
+ * Arşiv zaman damgası (LTA) için RFC 3161 isteği üretir.
+ *
+ * Damgalanan girdi, imzanın ve o ana kadarki bütün imzalanmamış
+ * özelliklerin birleşimidir — ayrıntı ve hangi spesifikasyon maddesinin
+ * uygulandığı için {@link archiveTimestampInput}.
+ *
+ * @param options - {@link TimestampRequestInput}
+ * @returns `TimeStampReq` DER kodlaması
+ */
+export const archiveTimestampRequest = (options: TimestampRequestInput): Uint8Array => {
+  const { document, signature } = locateSignature(options)
+  const canonicalization = resolveCanonicalization(options, signature)
+  const digestAlgorithm = options.digestAlgorithm ?? 'SHA-256'
+  const input = archiveTimestampInput(document, signature, canonicalization)
+  return buildTimestampRequest({
+    messageImprint: digest(digestAlgorithm, input.bytes),
+    hashAlgorithm: DIGEST_NODE_NAME[digestAlgorithm] as 'sha256' | 'sha384' | 'sha512',
+    ...(options.policyOid === undefined ? {} : { policyOid: options.policyOid }),
+    ...(options.nonce === undefined ? {} : { nonce: options.nonce }),
+    ...(options.requestCertificate === undefined
+      ? {}
+      : { requestCertificate: options.requestCertificate }),
+  })
+}
+
+/** {@link upgrade} seçenekleri. */
+export type UpgradeOptions = UpgradeToTimestamp | UpgradeToLongTerm | UpgradeToArchive
+
+/**
+ * İmzayı bir üst seviyeye yükseltir.
+ *
+ * @param options - {@link UpgradeToTimestamp} ya da {@link UpgradeToLongTerm}
  * @returns Yükseltilmiş belge (XML metni)
- * @throws {SigningError} İmza bulunamazsa ya da jeton bu imzayı damgalamıyorsa
+ * @throws {SigningError} İmza bulunamazsa ya da veri bu imzayla bağdaşmıyorsa
+ *
+ * @example T — zaman damgası
+ * ```ts
+ * upgrade({ xml: imzali, to: 'T', token: jeton })
+ * ```
+ *
+ * @example LT — zincir ve iptal kanıtı
+ * ```ts
+ * upgrade({
+ *   xml: damgali,
+ *   to: 'LT',
+ *   certificates: [araCa, kokCa],
+ *   ocspResponses: [ocspYaniti],
+ * })
+ * ```
  */
 export const upgrade = (options: UpgradeOptions): string => {
+  if (options.to === 'T') return upgradeToTimestamp(options)
+  if (options.to === 'LT') return upgradeToLongTerm(options)
+  return upgradeToArchive(options)
+}
+
+/** LTA: arşiv zaman damgasını `UnsignedProperties` altına gömer. */
+const upgradeToArchive = (options: UpgradeToArchive): string => {
+  const { document, signature } = locateSignature(options)
+  const canonicalization = resolveCanonicalization(options, signature)
+  const digestAlgorithm = options.digestAlgorithm ?? 'SHA-256'
+
+  if (options.verifyToken ?? true) {
+    const sonuc = verifyTimestampToken(options.token)
+    if (!sonuc.valid) {
+      throw new SigningError(`Arşiv zaman damgası doğrulanamadı: ${sonuc.reason}`)
+    }
+    const input = archiveTimestampInput(document, signature, canonicalization)
+    const expected = digest(digestAlgorithm, input.bytes)
+    if (Buffer.from(sonuc.info.messageImprint).compare(Buffer.from(expected)) !== 0) {
+      throw new SigningError(
+        'Jeton bu arşiv girdisini damgalamamış — messageImprint eşleşmiyor. ' +
+          'İsteği üreten belge ile yükseltilen belge aynı olmalı.',
+      )
+    }
+  }
+
+  const archive = xades141(
+    'ArchiveTimeStamp',
+    [
+      ds('CanonicalizationMethod', [], [attribute('Algorithm', C14N_URI[canonicalization])]),
+      xades('EncapsulatedTimeStamp', [
+        { kind: 'text', value: wrapBase64(toBase64(options.token)) },
+      ]),
+    ],
+    [attribute('Id', options.timestampId ?? `ArchiveTimeStamp-${randomUUID()}`)],
+    // Ad alanı bildirimi öğenin KENDİSİNDE: dışlayıcı kanonikleştirmede
+    // bu öğe tek başına özetlenir ve bildirimi kendi içinde bulmalı.
+    [{ prefix: Prefix.XADES_141, uri: Namespace.XADES_141 }],
+  )
+
+  return serializeXml(insertUnsignedProperty(document, signature, archive))
+}
+
+/** LT: zincir ve iptal kanıtını `UnsignedProperties` altına gömer. */
+const upgradeToLongTerm = (options: UpgradeToLongTerm): string => {
+  const { document, signature } = locateSignature(options)
+
+  const ocspResponses = options.ocspResponses ?? []
+  const crls = options.crls ?? []
+  if (ocspResponses.length === 0 && crls.length === 0) {
+    throw new SigningError(
+      'LT seviyesi iptal kanıtı olmadan anlamsız: en az bir OCSP yanıtı ya da CRL verilmeli. ' +
+        'Yalnızca zincir gömmek, imzayı sertifikaların süresi dolduktan sonra doğrulanabilir kılmaz.',
+    )
+  }
+  if (options.certificates.length === 0) {
+    throw new SigningError('LT seviyesi için en az bir sertifika verilmeli.')
+  }
+
+  // Aynı sertifikayı iki kez gömmek belgeyi büyütmekten başka bir şey
+  // yapmaz; yinelenenler baytlarına göre ayıklanır.
+  const seen = new Set<string>()
+  const unique = options.certificates.filter((der) => {
+    const key = toBase64(der)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+
+  const encapsulated = (localName: string, der: Uint8Array): XmlElement =>
+    xades(localName, [{ kind: 'text', value: wrapBase64(toBase64(der)) }])
+
+  const properties: XmlElement[] = [
+    xades(
+      'CertificateValues',
+      unique.map((der) => encapsulated('EncapsulatedX509Certificate', der)),
+    ),
+    xades('RevocationValues', [
+      ...(crls.length === 0
+        ? []
+        : [
+            xades(
+              'CRLValues',
+              crls.map((der) => encapsulated('EncapsulatedCRLValue', der)),
+            ),
+          ]),
+      ...(ocspResponses.length === 0
+        ? []
+        : [
+            xades(
+              'OCSPValues',
+              ocspResponses.map((der) => encapsulated('EncapsulatedOCSPValue', der)),
+            ),
+          ]),
+    ]),
+  ]
+
+  let next = document
+  let target = signature
+  for (const property of properties) {
+    next = insertUnsignedProperty(next, target, property)
+    // Ağaç yeniden kurulduğu için imza düğümünü yeniden bulmak gerekiyor.
+    const relocated = [...walkElements(next.root)].find(
+      (element) =>
+        element.namespace === Namespace.SIGNATURE &&
+        element.localName === 'Signature' &&
+        getAttributeValue(element, 'Id') === getAttributeValue(signature, 'Id'),
+    )
+    if (relocated === undefined) throw new SigningError('İmza düğümü yeniden bulunamadı.')
+    target = relocated
+  }
+  return serializeXml(next)
+}
+
+/** T: zaman damgası jetonunu `UnsignedProperties` altına gömer. */
+const upgradeToTimestamp = (options: UpgradeToTimestamp): string => {
   const { document, signature, imprint } = locateSignature(options)
 
   if (options.verifyToken ?? true) {
