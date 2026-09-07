@@ -1,15 +1,16 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.3.0 — kararlı.** **XAdES** (BES, EPES, T, LT, LTA) ve
-> **CAdES** (BES, EPES, T, LT). Yanında RFC 3161 zaman damgası, RFC 6960
-> OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve
-> paralel imza. Public API kararlıdır; kırıcı değişiklik ana sürüm
-> yükseltir. PAdES ve ASiC yol haritasında ve katkısal.
+> **Durum: 1.4.0 — kararlı.** Üç imza biçimi de hazır: **XAdES**
+> (BES, EPES, T, LT, LTA), **CAdES** (BES, EPES, T, LT) ve **PAdES**
+> (B-B, B-T). Yanında RFC 3161 zaman damgası, RFC 6960 OCSP, RFC 5652 CMS,
+> kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel imza.
+> Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir. ASiC yol
+> haritasında ve katkısal.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
-belgeleri doğrular. XML belgeler için **XAdES**, ikili veri için
-**CAdES**.
+belgeleri doğrular. XML için **XAdES**, ikili veri için **CAdES**, PDF için
+**PAdES**.
 
 Çalışma zamanı bağımlılığı **yoktur**. Gereken her şey — kanonikleştirme,
 ASN.1, PKCS#12, hatta artık Node'un kriptografisinde bulunmayan RC2 ve
@@ -543,6 +544,84 @@ EPES, T'ye ve LT'ye yükseltilmiş hâlleriyle. Bu, `signedAttrs` kodlamasının
 bağının hepsinin doğru olduğunu birlikte gösteriyor; kendi doğrulayıcımızla
 test etmek bunların hiçbirini göstermezdi.
 
+## PAdES — PDF imzası
+
+PDF'e gömülen şey **ayrık bir CAdES imzasıdır**; bu yüzden PAdES kendi
+kriptografisini getirmiyor, CAdES katmanının üstüne oturuyor. Getirdiği şey
+PDF'e özgü olan kısım: artımlı güncelleme, imza sözlüğü ve `/ByteRange`.
+
+```ts
+import { padesSign, padesVerify, loadPkcs12 } from '@yankikucuk/e-imza'
+import { readFileSync } from 'node:fs'
+
+const { privateKey, certificate, chain } = loadPkcs12(p12, sifre)
+
+const imzali = padesSign({
+  pdf: readFileSync('belge.pdf'),
+  signer: { certificate, chain },
+  privateKey,
+  reason: 'Fatura onayı',
+  location: 'İstanbul',
+  name: 'Örnek İmzacı',
+})
+
+const sonuc = padesVerify(imzali)
+sonuc.valid // true
+sonuc.signatures[0].coversWholeDocument // true
+```
+
+### Özgün baytlara dokunulmaz
+
+İmza dosyanın **sonuna** eklenir, eski çapraz başvuru `/Prev` ile zincire
+bağlanır. Özgün baytlar bayt bayt korunur — daha önce atılmış imzalar bu
+yüzden bozulmaz ve aynı belgeye üst üste imza atılabilir.
+
+```ts
+const iki = padesSign({ pdf: imzali, signer, privateKey })
+padesVerify(iki).signatures // iki imza, ikisi de geçerli
+```
+
+### Kapsam raporlanır
+
+İkinci imza eklendiğinde birincinin kapsamı daralır: kendisinden sonra
+eklenen bölüm onun `/ByteRange`ının dışındadır. Bu bir saldırı değil —
+artımlı güncelleme PDF'in normal davranışı — ama bilinmesi gerekiyor:
+
+```ts
+const imza = padesVerify(iki).signatures[0]
+imza.valid // true
+imza.coversWholeDocument // false
+imza.warnings // [{ code: 'partial-coverage', … }]
+```
+
+Sessizce "geçerli" demek, imzanın kapsamadığı içeriği kapsıyormuş gibi
+göstermek olurdu.
+
+### İmza için yer ayırma
+
+PDF'te imzanın boyutu **imza atılmadan önce** ayrılmak zorunda: yer
+ayrılmadan `/ByteRange` hesaplanamaz, `/ByteRange` olmadan imzalanacak
+baytlar belli olmaz. Varsayılan 8 KB; zincir ve zaman damgası gömülecekse
+artırın.
+
+```ts
+padesSign({ pdf, signer, privateKey, signatureSpace: 32768 })
+```
+
+Sığmazsa açık hata verilir — sessizce kırpmak bozuk bir dosya üretirdi.
+
+### Doğrulama
+
+PAdES çıktısı **poppler'ın `pdfsig`i ile çapraz doğrulandı**: bağımsız bir
+PDF imza doğrulayıcısı imzalarımızı `Signature is Valid` ve `Total document
+signed` diye raporluyor. Bu tek sonuç artımlı güncellemenin, `/ByteRange`
+hesabının, imza sözlüğünün ve gömülü CAdES'in hepsinin doğru olduğunu
+birlikte gösteriyor.
+
+Okuma tarafında üç çapraz başvuru biçimi de destekleniyor: klasik `xref`
+tablosu, çapraz başvuru akışı, ve PNG öngörücülü akış — sonuncusu modern
+üreticilerin varsayılanı ve geri alınmazsa tablo **sessizce** yanlış okunur.
+
 ## Kanonikleştirme
 
 Kanonikleştirici ayrıca kullanılabilir. **Canonical XML 1.0** ve
@@ -602,14 +681,18 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**PAdES ve ASiC** — PDF imzası ve imzalı konteyner. PAdES, CAdES'in
-üstüne oturuyor: PDF'e gömülen şey ayrık bir CMS imzasıdır ve o çekirdek
-artık hazır. Sıra: **PAdES → ASiC**.
+**ASiC** — imzalı konteyner (ETSI EN 319 162). Sıradaki iş.
 
-**CAdES-LTA** — arşiv zaman damgası. CAdES'in `archive-timestamp-v3`
-girdisi XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak
-istemedim; okunduğunda kriptografik geçerliliği bildiriliyor ama seviye
-yükseltmiyor.
+**PAdES-LT / LTA** — PDF'e `/DSS` sözlüğü ve belge zaman damgası eklemek.
+İmza içine gömülü CAdES zaten T seviyesine çıkabiliyor; eksik olan PDF
+tarafındaki uzun-dönem yapısı.
+
+**CAdES-LTA** — arşiv zaman damgası. `archive-timestamp-v3` girdisi
+XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak istemedim;
+okunduğunda kriptografik geçerliliği bildiriliyor ama seviye yükseltmiyor.
+
+**Şifreli PDF** — imza eklemek belgeyi çözmeyi gerektirir; açıkça
+reddediliyor.
 
 **CRL ayrıştırma** — CRL'ler LT seviyesine gömülebiliyor ama içerikleri
 çözümlenmiyor; iptal denetimi için OCSP yolu tam.
@@ -702,17 +785,24 @@ PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
 
 ```bash
 npm install
-npm test              # 352 test
+npm test              # 427 test
 npm run test:coverage
 npm run typecheck
 npm run lint
 npm run knip
 ```
 
-Testler iki bağımsız referans uygulamayla karşılaştırma yapar:
-kanonikleştirme **libxml2** (`xmllint`), ASN.1 ve anahtar malzemesi
-**OpenSSL** ile. İkisi de yoksa ilgili testler atlanır; CI'da ikisi de
-kurulu.
+Testler üç bağımsız referans uygulamayla karşılaştırma yapar:
+
+| ne                              | araç                    |
+| ------------------------------- | ----------------------- |
+| kanonikleştirme                 | **libxml2** (`xmllint`) |
+| ASN.1, CMS, zaman damgası, OCSP | **OpenSSL**             |
+| PDF imzası                      | **poppler** (`pdfsig`)  |
+
+Zaman damgası ve OCSP çevrimdışı sunucularla sınanıyor (`openssl ts -reply`,
+`openssl ocsp -index`) — testler hiçbir zaman ağa çıkmaz. Araç yoksa ilgili
+testler atlanır; CI'da üçü de kurulu ve varlıkları ayrıca iddia ediliyor.
 
 Anahtar malzemesi depoda tutulmaz, her koşuda geçici dizinde üretilir.
 Eski biçim kapları macOS'un sistem LibreSSL'iyle, modern olanlar OpenSSL 3

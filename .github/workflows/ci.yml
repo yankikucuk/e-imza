@@ -16,17 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Testler iki bağımsız referans uygulamayla karşılaştırma yapıyor ve
-      # ikisi de gerçekten kurulu olmalı: kanonikleştirme libxml2 (xmllint)
-      # ile, ASN.1 ve anahtar malzemesi OpenSSL ile doğrulanıyor. Araç
-      # yoksa o testler atlanır — ama atlanmaları sessiz kalmasın diye
-      # xmllint'in varlığı ayrıca iddia ediliyor.
+      # Testler üç bağımsız referans uygulamayla karşılaştırma yapıyor ve
+      # üçü de gerçekten kurulu olmalı: kanonikleştirme libxml2 (xmllint),
+      # ASN.1 ve CMS OpenSSL, PDF imzası poppler (pdfsig) ile doğrulanıyor.
+      # Araç yoksa o testler atlanır — ama atlanmaları sessiz kalmasın diye
+      # her birinin varlığı ayrıca iddia ediliyor.
       - name: Referans araçları kur
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libxml2-utils
+          sudo apt-get install -y --no-install-recommends libxml2-utils poppler-utils
           xmllint --version
           openssl version
+          pdfsig -v
 
       - uses: actions/setup-node@v7
         with:

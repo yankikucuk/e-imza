@@ -3,6 +3,54 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.4.0] — 2026-09-07
+
+PAdES — PDF imzası. B-B ve B-T.
+
+### Eklendi
+
+- `padesSign()`, `padesVerify()` — artımlı güncelleme ile PDF imzası
+- `padesPrepare()` / `padesComplete()` — kart, HSM ve uzak imza için
+- PDF yapı katmanı: nesne ayrıştırıcısı, çapraz başvuru tablosu ve akışı,
+  nesne akışı (`ObjStm`), PNG öngörücüsü, artımlı güncelleme yazıcısı
+- `readPdf()`, `catalog()`, `firstPage()`, `getObject()` — PDF okuma
+  yardımcıları da dışa açık
+
+### Kararlar
+
+- **Özgün baytlara dokunulmuyor.** İmza dosyanın sonuna ekleniyor, eski
+  çapraz başvuru `/Prev` ile zincirleniyor. Daha önce atılmış imzalar bu
+  yüzden bozulmuyor ve üst üste imza atılabiliyor
+- **Kapsam raporlanıyor.** İkinci imza eklendiğinde birincinin kapsamı
+  daralır; `coversWholeDocument: false` ve `partial-coverage` uyarısı
+  çıkar. Sessizce "geçerli" demek, imzanın kapsamadığı içeriği kapsıyormuş
+  gibi göstermek olurdu
+- **Şifreli PDF açıkça reddediliyor.** İmza eklemek belgeyi çözmeyi
+  gerektirir
+- **İmza alanı sığmazsa açık hata.** Sessizce kırpmak bozuk dosya üretirdi
+
+### Doğrulama
+
+**poppler `pdfsig` çapraz doğrulaması.** Bağımsız bir PDF imza
+doğrulayıcısı imzalarımızı `Signature is Valid` ve `Total document signed`
+diye raporluyor — tek sonuç, artımlı güncellemenin, `/ByteRange` hesabının,
+imza sözlüğünün ve gömülü CAdES'in hepsini birlikte kanıtlıyor.
+
+Yedi mutasyon denendi, altısı yakalandı. Yakalanmayan biri gerçek bir test
+boşluğu DEĞİL, ölçülemez bir dal: `/Contents` yer tutucusu zaten sıfırlarla
+dolu olduğu için imzadan artan bölgeyi ayrıca sıfırla doldurmak
+gözlemlenebilir bir fark yaratmıyor. Savunma amaçlı bırakıldı, gerekçesi
+koda yazıldı, ve yer tutucunun gözlemlenebilir sözleşmesi ayrı bir testle
+sabitlendi.
+
+### Katman kuralı
+
+`pdf` katmanı kriptografiyi **hiç görmez** — `xml` katmanının PDF'teki eşi.
+`pades` ikisinin üstünde durur ve XAdES tarafını görmez. Hepsi ESLint ile
+zorlanıyor.
+
+427 test.
+
 ## [1.3.0] — 2026-09-07
 
 CAdES — ikili veri imzası. BES, EPES, T ve LT.
@@ -206,6 +254,7 @@ hesaplandığı için `eContent`e dokunmak onu düşürmez. Testi eklendi.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
+[1.4.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.4.0
 [1.3.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.2.0
 [1.1.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.1.0

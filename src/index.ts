@@ -169,6 +169,36 @@ export {
 
 export type { CadesSignaturePolicy, SignerLocation } from './cades/attributes.js'
 
+/* ── PAdES (PDF imzası) ───────────────────────────────────────────────── */
+export {
+  padesComplete,
+  padesPrepare,
+  padesSign,
+  type PadesSignatureOptions,
+  type PadesSignerInput,
+  type PadesSignOptions,
+  type PendingPadesSignature,
+} from './pades/sign.js'
+
+export {
+  padesVerify,
+  type PadesSignatureResult,
+  type PadesVerification,
+  type PadesWarning,
+} from './pades/verify.js'
+
+/* ── PDF yapısı ───────────────────────────────────────────────────────── */
+export {
+  catalog,
+  firstPage,
+  getObject,
+  readPdf,
+  resolve as resolvePdfObject,
+  type PdfDocument,
+} from './pdf/document.js'
+
+export { dictEntry, PdfReader, type PdfObject } from './pdf/object.js'
+
 /* ── Doğrulama ────────────────────────────────────────────────────────── */
 export {
   verify,

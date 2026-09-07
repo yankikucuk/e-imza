@@ -46,6 +46,18 @@ const forbid = (
   ],
 })
 
+/**
+ * Tepe katman modülleri — hiçbir alt katman bunlara bakamaz.
+ *
+ * Yol AÇIKÇA `../` ile yazılıyor. Yıldızlı geniş bir desen (iki yıldız,
+ * eğik çizgi, `sign.js`) kardeş katmanların dosyalarını da yakalar ve
+ * `cades/sign.js` gibi meşru bir bağımlılığı yanlışlıkla engeller.
+ *
+ * Not: o deseni buraya olduğu gibi yazmak mümkün değil — içindeki yıldız
+ * ve eğik çizgi ikilisi blok yorumu erken kapatıyor.
+ */
+const TOP_LEVEL = ['../sign.js', '../verify.js', '../upgrade.js', '../index.js']
+
 const ABOVE_CORE = ['**/asn1/**', '**/xml/**', '**/c14n/**', '**/pki/**', '**/xades/**']
 
 export default defineConfig(
@@ -121,7 +133,7 @@ export default defineConfig(
   {
     files: ['src/xades/**/*.ts'],
     rules: forbid(
-      ['**/sign.js', '**/verify.js', '**/index.js', '**/cades/**'],
+      [...TOP_LEVEL, '**/cades/**'],
       "xades katmanı tepe katmanına ya da kardeşi cades'e bağımlı olamaz.",
     ),
   },
@@ -130,8 +142,35 @@ export default defineConfig(
   {
     files: ['src/cades/**/*.ts'],
     rules: forbid(
-      ['**/xml/**', '**/c14n/**', '**/xades/**', '**/sign.js', '**/verify.js', '**/index.js'],
-      'cades yalnızca core, asn1 ve pki katmanlarına bağımlı olabilir; CAdES ikili veri imzasıdır ve XML görmez.',
+      ['**/xml/**', '**/c14n/**', '**/xades/**', '**/pdf/**', '**/pades/**', ...TOP_LEVEL],
+      'cades yalnızca core, asn1 ve pki katmanlarına bağımlı olabilir; CAdES ikili veri imzasıdır ve XML de PDF de görmez.',
+    ),
+  },
+  // ── Katman: pdf ───────────────────────────────────────────────────────
+  // PDF yapısı. Kriptografiyi HİÇ görmez; xml katmanının PDF'teki eşi.
+  {
+    files: ['src/pdf/**/*.ts'],
+    rules: forbid(
+      [
+        '**/asn1/**',
+        '**/pki/**',
+        '**/xml/**',
+        '**/c14n/**',
+        '**/xades/**',
+        '**/cades/**',
+        '**/pades/**',
+        ...TOP_LEVEL,
+      ],
+      'pdf yalnızca core katmanına bağımlı olabilir; PDF yapısı kriptografi bilmez.',
+    ),
+  },
+  // ── Katman: pades ─────────────────────────────────────────────────────
+  // PDF ile CAdES'in birleştiği yer. Kendi kriptografisini getirmez.
+  {
+    files: ['src/pades/**/*.ts'],
+    rules: forbid(
+      ['**/xml/**', '**/c14n/**', '**/xades/**', ...TOP_LEVEL],
+      'pades, pdf ve cades katmanlarının üstünde durur; XAdES tarafını görmez.',
     ),
   },
   // Testler daha gevşek: `!` orada bir iddia değil, "bu düzeneği ben kurdum,
