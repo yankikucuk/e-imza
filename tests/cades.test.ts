@@ -58,12 +58,22 @@ const opensslVerify = (
   const { intermediateCertificate, rootCertificate } = keyMaterial()
   const sig = join(directory, `sig-${String(counter)}.der`)
   const ca = join(directory, `ca-${String(counter)}.pem`)
-  const ara = join(directory, `ara-${String(counter)}.pem`)
   writeFileSync(sig, cms)
-  // Güven kökü GERÇEK kök CA; ara sertifika zinciri kurmak için ayrıca
-  // veriliyor. İmzamız varsayılan olarak yalnızca uç sertifikayı gömüyor.
-  writeFileSync(ca, toPem(trustAnchor ?? rootCertificate))
-  writeFileSync(ara, toPem(intermediateCertificate))
+  // Kök VE ara sertifika birlikte güven deposuna yazılıyor.
+  //
+  // Ara sertifikayı `-certfile` ile vermek yeterli DEĞİL: OpenSSL 3.0.13
+  // (Ubuntu) onu zincir kurmakta kullanmıyor ve "unable to get local issuer
+  // certificate" diyor; 3.6.3 (Homebrew) kullanıyor. Sürüm farkı CI'da
+  // yakalandı — yerelde geçen test orada düşmüştü. İkisini birden depoya
+  // koymak her sürümde çalışıyor ve testin konusunu değiştirmiyor: konu
+  // zincir semantiği değil, yapının CMS olarak okunabildiği ve imzanın
+  // tuttuğu.
+  writeFileSync(
+    ca,
+    trustAnchor === undefined
+      ? toPem(rootCertificate) + toPem(intermediateCertificate)
+      : toPem(trustAnchor),
+  )
 
   const args = [
     'cms',
@@ -74,8 +84,6 @@ const opensslVerify = (
     'DER',
     '-CAfile',
     ca,
-    '-certfile',
-    ara,
     // Test sertifikalarında extendedKeyUsage yok; amaç denetimi bu testin
     // konusu DEĞİL. Konu, yapının CMS olarak okunabildiği ve imzanın tuttuğu.
     '-purpose',
