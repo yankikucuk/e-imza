@@ -57,17 +57,39 @@ export interface DerNode {
 const CLASS_BY_BITS: readonly DerTagClass[] = ['universal', 'application', 'context', 'private']
 
 /**
+ * İzin verilen en fazla iç içe geçme derinliği.
+ *
+ * Gerçek X.509 ve PKCS#12 yapıları on beş seviyeyi geçmez; 64 bol bir
+ * paydır. Sınırın kendisi güvenlik gereğidir: `SEQUENCE` başlıkları
+ * sadece iki bayt olduğu için ~20 KB'lık bir girdiyle on binlerce seviye
+ * derinlik kurulabilir ve özyinelemeli bir ayrıştırıcı yığını taşırır.
+ * Süreç çöker; hizmet durur.
+ *
+ * Aynı sınıf açık `PKI.js#466`de (CVSS 8.7) bildirildi. Ölçüldü (Eylül
+ * 2026): `asn1js` 3.0.10 bu sınırı zaten eklemiş (`DEFAULT_MAX_DEPTH = 100`)
+ * — 100 seviye geçiyor, 1.000 seviye reddediliyor. Yani bu bir üstünlük
+ * değil, en baştan doğru yapılmış olan şey; kaydı, ileride sınırın
+ * "gereksiz" diye kaldırılmaması için burada duruyor.
+ */
+const MAX_DEPTH = 64
+
+/**
  * Tek bir DER değerini çözümler.
  *
  * @param bytes - Kaynak baytlar
  * @param offset - Başlangıç konumu; varsayılan 0
+ * @param depth - İç kullanım: geçerli iç içe geçme derinliği
  * @returns Düğüm ve bir sonraki değerin başlangıç konumu
- * @throws {DerParseError} Baytlar geçerli DER değilse
+ * @throws {DerParseError} Baytlar geçerli DER değilse ya da derinlik aşılırsa
  */
 export const decodeDerAt = (
   bytes: Uint8Array,
   offset = 0,
+  depth = 0,
 ): { readonly node: DerNode; readonly next: number } => {
+  if (depth > MAX_DEPTH) {
+    throw new DerParseError(offset, `İç içe geçme sınırı aşıldı (${String(MAX_DEPTH)}).`)
+  }
   const start = offset
   if (offset >= bytes.length) throw new DerParseError(offset, 'Beklenmedik son.')
 
@@ -121,7 +143,7 @@ export const decodeDerAt = (
   if (constructed) {
     let cursor = 0
     while (cursor < content.length) {
-      const parsed = decodeDerAt(content, cursor)
+      const parsed = decodeDerAt(content, cursor, depth + 1)
       children.push(parsed.node)
       cursor = parsed.next
     }
@@ -237,11 +259,21 @@ export const asOid = (node: DerNode): string => {
 /**
  * `OCTET STRING` içeriğini verir.
  *
+ * Kurgusal (parçalara bölünmüş) `OCTET STRING` de kabul edilir ve parçalar
+ * birleştirilir. DER bölünmeye izin vermez, ama sahadaki dosyalar her zaman
+ * DER değildir: `PKI.js#405` tam olarak bu — pkijs'in ürettiği PKCS#12
+ * kapları içeriği 1024 baytlık parçalara bölüyor ve katı okuyucular o
+ * dosyaları açamıyor. Okurken hoşgörülü olmak, yazarken katı kalmak
+ * (biz her zaman ilkel yazarız) doğru dengedir.
+ *
  * @param node - Beklenen `OCTET STRING`
- * @returns İçerik baytları
+ * @returns İçerik baytları; bölünmüşse birleştirilmiş hâli
  */
-export const asOctetString = (node: DerNode): Uint8Array =>
-  expectUniversal(node, DerTag.OCTET_STRING, 'OCTET STRING').content
+export const asOctetString = (node: DerNode): Uint8Array => {
+  const octetString = expectUniversal(node, DerTag.OCTET_STRING, 'OCTET STRING')
+  if (!octetString.constructed) return octetString.content
+  return concat(...octetString.children.map((child) => asOctetString(child)))
+}
 
 /**
  * `BIT STRING` içeriğini verir (kullanılmayan bit sayısı baytı atılır).

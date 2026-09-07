@@ -219,6 +219,72 @@ describe('ham baytların korunması', () => {
   })
 })
 
+describe('kötü niyetli girdiye dayanıklılık', () => {
+  /** N seviye iç içe boş SEQUENCE üretir — her seviye yalnızca iki bayt. */
+  const nest = (levels: number): Uint8Array => {
+    let bytes = new Uint8Array([0x30, 0x00])
+    for (let i = 1; i < levels; i += 1) {
+      const next = new Uint8Array(bytes.length + 2)
+      next[0] = 0x30
+      next[1] = bytes.length
+      next.set(bytes, 2)
+      // Uzunluk 127'yi aşınca uzun biçime geçmek gerekir; bu test için
+      // kısa biçimde kalacak kadar sığ seviyeler yeterli.
+      if (bytes.length >= 0x80) break
+      bytes = next
+    }
+    return bytes
+  }
+
+  /**
+   * Sınırsız özyineleme, ~200 KB'lık bir girdiyle yığını taşırıp süreci
+   * düşürür (`PKI.js#466`, CVSS 8.7 — aynı sınıf açık). Ölçüldü: `asn1js`
+   * 3.0.10 bu sınırı zaten taşıyor, dolayısıyla burası bir üstünlük değil,
+   * doğru varsayılan.
+   *
+   * Beklenen davranış çökme DEĞİL, açık bir hatadır.
+   */
+  it('derin iç içe geçme yığını taşırmadan reddedilir', () => {
+    // 40.000 seviye. Her seviyenin başlığı 5 bayt: 0x30 (SEQUENCE),
+    // 0x83 (uzunluk üç baytta), ardından uzunluk. Toplam ~200 KB.
+    const levels = 40_000
+    const bytes = new Uint8Array(levels * 5)
+    for (let i = 0; i < levels; i += 1) {
+      const inner = (levels - 1 - i) * 5
+      const offset = i * 5
+      bytes[offset] = 0x30
+      bytes[offset + 1] = 0x83
+      bytes[offset + 2] = (inner >> 16) & 0xff
+      bytes[offset + 3] = (inner >> 8) & 0xff
+      bytes[offset + 4] = inner & 0xff
+    }
+
+    expect(() => decodeDer(bytes)).toThrow(DerParseError)
+    expect(() => decodeDer(bytes)).toThrow(/İç içe geçme sınırı/)
+  })
+
+  it('sınırın altındaki derinlik kabul edilir', () => {
+    expect(() => decodeDer(nest(30))).not.toThrow()
+  })
+
+  /**
+   * `PKI.js#405`: pkijs ile üretilmiş PKCS#12 kapları içeriği 1024 baytlık
+   * kurgusal parçalara bölüyor. DER bölünmeye izin vermez, ama o dosyalar
+   * sahada var ve kullanıcının elindeki dosyayı reddetmek çözüm değil.
+   * Okurken hoşgörülü, yazarken katı olmak doğru denge — biz her zaman
+   * ilkel (bölünmemiş) yazarız.
+   */
+  it('parçalara bölünmüş OCTET STRING birleştirilir', () => {
+    // 24 06 [04 02 aa bb] [04 02 cc dd] — kurgusal OCTET STRING.
+    const split = fromHex('2408' + '0402aabb' + '0402ccdd')
+    expect(toHex(asOctetString(decodeDer(split)))).toBe('aabbccdd')
+  })
+
+  it('bölünmemiş OCTET STRING aynı sonucu verir', () => {
+    expect(toHex(asOctetString(decodeDer(fromHex('0404aabbccdd'))))).toBe('aabbccdd')
+  })
+})
+
 describe('bozuk girdi', () => {
   it('belirsiz uzunluk reddedilir', () => {
     // 30 80 … BER'de geçerli, DER'de değil.

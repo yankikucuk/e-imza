@@ -59,6 +59,55 @@ export {
 /* ── Anahtar malzemesi ────────────────────────────────────────────────── */
 export { loadPkcs12, type LoadPkcs12Options, type Pkcs12Bundle } from './pki/pkcs12.js'
 
+/* ── İmzalama ─────────────────────────────────────────────────────────── */
+export {
+  complete,
+  prepare,
+  sign,
+  signWithKey,
+  type PendingSignature,
+  type SignatureOptions,
+  type SignaturePlacement,
+  type SignerInput,
+  type SignOptions,
+} from './sign.js'
+
+/* ── Doğrulama ────────────────────────────────────────────────────────── */
+export {
+  verify,
+  verifyAll,
+  type ReferenceResult,
+  type SignatureLevel,
+  type VerificationResult,
+  type VerificationWarning,
+  type VerifyOptions,
+} from './verify.js'
+
+/* ── XAdES sabitleri ve tipleri ───────────────────────────────────────── */
+export {
+  COMMITMENT_OID,
+  DIGEST_URI,
+  Namespace,
+  Prefix,
+  ReferenceType,
+  SIGNATURE_URI,
+  TR_POLICY_OID,
+  Transform,
+  Ubl,
+  type CommitmentType,
+  type DigestAlgorithm,
+  type SignatureAlgorithm,
+} from './xades/constants.js'
+
+export type { ProductionPlace, SignaturePolicy, SignerRole } from './xades/signature.js'
+
+/* ── Sertifika ────────────────────────────────────────────────────────── */
+export { readCertificate, type CertificateInfo } from './pki/certificate.js'
+
+/* ── XML düzenleme ────────────────────────────────────────────────────── */
+export { findElementById } from './xml/edit.js'
+export { serializeElement, serializeXml, type SerializeOptions } from './xml/serialize.js'
+
 /* ── Hatalar ──────────────────────────────────────────────────────────── */
 export {
   DerParseError,

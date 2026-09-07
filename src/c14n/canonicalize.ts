@@ -1,6 +1,12 @@
 import { utf8 } from '../core/bytes.js'
 import { UnsupportedCanonicalizationError } from '../core/errors.js'
 import {
+  compareCodePoints,
+  escapeAttributeValue,
+  escapeCommentOrInstruction,
+  escapeText,
+} from '../xml/escape.js'
+import {
   qualifiedName,
   XML_NAMESPACE,
   type XmlAttribute,
@@ -9,13 +15,6 @@ import {
   type XmlNamespaceDeclaration,
   type XmlNode,
 } from '../xml/node.js'
-
-import {
-  compareCodePoints,
-  escapeAttributeValue,
-  escapeCommentOrInstruction,
-  escapeText,
-} from './escape.js'
 
 /** Desteklenen kanonikleştirme algoritmaları. */
 export type C14nAlgorithm =
