@@ -87,6 +87,13 @@ export interface CmsSignerInfo {
   readonly signedAttributesDer?: Uint8Array
   readonly signatureAlgorithmOid: string
   readonly signature: Uint8Array
+  /**
+   * İmzalanmamış öznitelikler; yoksa `undefined`.
+   *
+   * İmzaya dâhil DEĞİLLERDİR — zaman damgası ve iptal verisi bu yüzden
+   * imza atıldıktan sonra eklenebiliyor.
+   */
+  readonly unsignedAttributes?: readonly DerNode[]
 }
 
 /** Çözümlenmiş `SignedData`. */
@@ -197,6 +204,7 @@ const parseSignerInfo = (node: DerNode): CmsSignerInfo => {
   }
 
   const unsignedIndex = fields.findIndex((f) => f.tagClass === 'context' && f.tagNumber === 1)
+  const unsignedNode = unsignedIndex === -1 ? undefined : fields[unsignedIndex]
   const tail = unsignedIndex === -1 ? fields : fields.slice(0, unsignedIndex)
   const signature = tail[tail.length - 1]
   const signatureAlgorithmNode = tail[tail.length - 2]
@@ -213,7 +221,30 @@ const parseSignerInfo = (node: DerNode): CmsSignerInfo => {
     ...(signedAttributesDer === undefined ? {} : { signedAttributesDer }),
     signatureAlgorithmOid: asOid(asSequence(signatureAlgorithmNode)[0] ?? signatureAlgorithmNode),
     signature: asOctetString(signature),
+    ...(unsignedNode === undefined ? {} : { unsignedAttributes: unsignedNode.children }),
   }
+}
+
+/**
+ * Bir öznitelik listesinde belirli OID'in TÜM değerlerini verir.
+ *
+ * @param attributes - Öznitelik düğümleri
+ * @param oid - Aranan öznitelik OID'i
+ * @returns Bulunan değerler; yoksa boş
+ */
+export const attributeValues = (
+  attributes: readonly DerNode[] | undefined,
+  oid: string,
+): readonly DerNode[] => {
+  const out: DerNode[] = []
+  for (const attribute of attributes ?? []) {
+    const fields = asSequence(attribute)
+    const typeNode = fields[0]
+    const valuesNode = fields[1]
+    if (typeNode === undefined || valuesNode === undefined) continue
+    if (asOid(typeNode) === oid) out.push(...asSet(valuesNode))
+  }
+  return out
 }
 
 /**

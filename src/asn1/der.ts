@@ -432,6 +432,26 @@ export const derSetOf = (...items: readonly Uint8Array[]): Uint8Array => {
 export const derExplicit = (tagNumber: number, ...items: readonly Uint8Array[]): Uint8Array =>
   encodeDer('context', true, tagNumber, concat(...items))
 
+/**
+ * Hazır kodlanmış bir yapının dış ETİKETİNİ bağlama özgü örtük
+ * (`IMPLICIT [n]`) etikete çevirir.
+ *
+ * CMS'in `signedAttrs` alanı için var. İmza `SET` biçiminin üzerinde
+ * hesaplanır, iletimde ise `[0] IMPLICIT` yazılır; ikisi yalnızca ilk
+ * BAYTTA ayrılır. Yapıyı yeniden kodlamak yerine baytı değiştirmek,
+ * imzalanan ile gömülen arasında bir bayt farkı olma riskini ortadan
+ * kaldırıyor.
+ *
+ * @param tagNumber - Etiket numarası
+ * @param encoded - Kodlanmış yapı (kurgusal bir tür olmalı)
+ * @returns Aynı içerik, yeni dış etiketle
+ */
+export const derImplicitSet = (tagNumber: number, encoded: Uint8Array): Uint8Array => {
+  const out = new Uint8Array(encoded)
+  out[0] = 0xa0 | tagNumber
+  return out
+}
+
 /** `BOOLEAN` üretir. */
 export const derBoolean = (value: boolean): Uint8Array =>
   encodeDer('universal', false, DerTag.BOOLEAN, new Uint8Array([value ? 0xff : 0x00]))
@@ -485,6 +505,29 @@ export const derGeneralizedTime = (date: Date): Uint8Array => {
     `${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
     `${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`
   return encodeDer('universal', false, DerTag.GENERALIZED_TIME, new TextEncoder().encode(text))
+}
+
+/**
+ * `UTCTime` üretir.
+ *
+ * RFC 5652 §11.3: 1 Ocak 1950 ile 31 Aralık 2049 arasındaki tarihler
+ * `UTCTime` olarak kodlanmak ZORUNDA. `GeneralizedTime` yazmak bugünün
+ * tarihleri için standart dışıdır ve katı doğrulayıcılar reddeder.
+ *
+ * @param date - Kodlanacak zaman
+ * @returns `UTCTime` kodlaması
+ * @throws {DerParseError} Tarih UTCTime aralığının dışındaysa
+ */
+export const derUtcTime = (date: Date): Uint8Array => {
+  const year = date.getUTCFullYear()
+  if (year < 1950 || year > 2049) {
+    throw new DerParseError(0, `UTCTime aralığı dışında: ${String(year)}`)
+  }
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const text =
+    `${pad(year % 100)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
+    `${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`
+  return encodeDer('universal', false, DerTag.UTC_TIME, new TextEncoder().encode(text))
 }
 
 /**

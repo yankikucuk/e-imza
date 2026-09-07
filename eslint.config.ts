@@ -9,15 +9,17 @@ import tseslint from 'typescript-eslint'
  * Katman düzeni — aşağıdan yukarı:
  *
  * ```
- *                    sign / verify          (tepe; her şeyi görür)
- *                          │
- *                        xades              (XML ile kripto burada buluşur)
+ *              sign / verify / upgrade        (tepe; her şeyi görür)
  *                    ┌─────┴─────┐
- *                  c14n         pki         ← KARDEŞ, birbirini göremez
+ *                  xades       cades         ← KARDEŞ
+ *                    │           │
+ *                    │      (XML görmez)
+ *                    │           │
+ *                  c14n         pki          ← KARDEŞ, birbirini göremez
  *                    │           │
  *                   xml        asn1
  *                    └─────┬─────┘
- *                        core                (yaprak)
+ *                        core                 (yaprak)
  * ```
  *
  * Kardeş izolasyonu bu pakette rastgele bir disiplin değil, doğrudan
@@ -115,12 +117,21 @@ export default defineConfig(
     ),
   },
   // ── Katman: xades ─────────────────────────────────────────────────────
-  // İki kardeşin birleştiği tek yer. Tepe katmanı (sign/verify) göremez.
+  // XML ile kriptonun birleştiği yer. Tepe katmanı ve cades görünmez.
   {
     files: ['src/xades/**/*.ts'],
     rules: forbid(
-      ['**/sign.js', '**/verify.js', '**/index.js'],
-      'xades katmanı kendisini çağıran tepe katmanına bağımlı olamaz.',
+      ['**/sign.js', '**/verify.js', '**/index.js', '**/cades/**'],
+      "xades katmanı tepe katmanına ya da kardeşi cades'e bağımlı olamaz.",
+    ),
+  },
+  // ── Katman: cades ─────────────────────────────────────────────────────
+  // İkili veri imzası. XML'i HİÇ görmez — kısıtlama değil, tanım.
+  {
+    files: ['src/cades/**/*.ts'],
+    rules: forbid(
+      ['**/xml/**', '**/c14n/**', '**/xades/**', '**/sign.js', '**/verify.js', '**/index.js'],
+      'cades yalnızca core, asn1 ve pki katmanlarına bağımlı olabilir; CAdES ikili veri imzasıdır ve XML görmez.',
     ),
   },
   // Testler daha gevşek: `!` orada bir iddia değil, "bu düzeneği ben kurdum,

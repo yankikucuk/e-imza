@@ -3,6 +3,49 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.3.0] — 2026-09-07
+
+CAdES — ikili veri imzası. BES, EPES, T ve LT.
+
+### Eklendi
+
+- `cadesSign()`, `cadesVerify()` — gömülü ve ayrık imza
+- `cadesPrepare()` / `cadesComplete()` — kart, HSM ve uzak imza için;
+  XAdES'teki desenin aynısı
+- `cadesTimestampRequest()` ve `cadesUpgrade({ to: 'T' | 'LT' })`
+- CMS `SignedData` **üretimi** (RFC 5652); okuma 1.1.0'da gelmişti
+- İmzalanmış öznitelikler: `signingCertificateV2` (RFC 5035),
+  `signaturePolicyIdentifier`, `commitmentTypeIndication`, `signerLocation`
+
+### Doğrulama
+
+**OpenSSL çapraz doğrulaması.** `openssl cms -verify` ürettiğimiz imzaları
+kabul ediyor: gömülü, ayrık, SHA-384/512, EC anahtar, EPES, T'ye ve LT'ye
+yükseltilmiş hâlleriyle. Bu tek test `signedAttrs` kodlamasını, `SET`
+etiketi dönüşümünü, `SignerInfo` alan sırasını ve `messageDigest` bağını
+birlikte kanıtlıyor.
+
+Sekiz mutasyon denendi; ikisi ilk turda yakalanmadı ve ikisi de gerçek
+boşluktu:
+
+- **Sertifika bağı hiç sınanmıyormuş.** `signingCertificateV2` denetimini
+  "her zaman doğru" yapan mutasyon hiçbir testi düşürmüyordu — oysa o bağ
+  CAdES-BES'in tam kalbi. Testi düşük seviyeli parçalarla tutarsız bir yapı
+  kurarak yazıldı: imza A sertifikasıyla atılıyor, öznitelik B'nin özetini
+  taşıyor. OpenSSL böyle bir imzayı kabul ediyor (kriptografik olarak
+  geçerli), biz uyarıyoruz.
+- **`signingTime` biçimi.** RFC 5652 §11.3 1950–2049 arasını `UTCTime`
+  olarak kodlamayı ŞART koşuyor; `GeneralizedTime` yazan mutasyon
+  yakalanmıyordu çünkü OpenSSL de bizim ayrıştırıcımız da ikisini kabul
+  ediyor. Katı bir doğrulayıcı reddederdi.
+
+### Katman kuralı
+
+`cades` XML'i **hiç görmez** ve bu ESLint ile zorlanıyor. Kısıtlama değil,
+tanım: CAdES ikili veri imzasıdır.
+
+352 test.
+
 ## [1.2.0] — 2026-09-07
 
 XAdES-LT ve LTA. Beş seviyenin tamamı hazır.
@@ -163,6 +206,7 @@ hesaplandığı için `eContent`e dokunmak onu düşürmez. Testi eklendi.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
+[1.3.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.3.0
 [1.2.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.2.0
 [1.1.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.0.0

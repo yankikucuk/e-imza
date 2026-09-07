@@ -130,6 +130,45 @@ export {
   type CmsVerification,
 } from './pki/cms.js'
 
+/* ── CAdES (ikili veri imzası) ────────────────────────────────────────── */
+export {
+  cadesComplete,
+  cadesPrepare,
+  cadesSign,
+  cadesSignWithKey,
+  type CadesSignatureOptions,
+  type CadesSignerInput,
+  type CadesSignOptions,
+  type PendingCadesSignature,
+} from './cades/sign.js'
+
+export {
+  cadesVerify,
+  type CadesTimestampResult,
+  type CadesVerification,
+  type CadesVerifyOptions,
+  type CadesWarning,
+} from './cades/verify.js'
+
+export {
+  cadesTimestampRequest,
+  cadesUpgrade,
+  type CadesTimestampRequestInput,
+  type CadesUpgradeOptions,
+  type CadesUpgradeToLongTerm,
+  type CadesUpgradeToTimestamp,
+} from './cades/upgrade.js'
+
+export {
+  COMMITMENT_OID as CADES_COMMITMENT_OID,
+  SignedAttribute,
+  UnsignedAttribute,
+  type CadesCommitmentType,
+  type CadesLevel,
+} from './cades/constants.js'
+
+export type { CadesSignaturePolicy, SignerLocation } from './cades/attributes.js'
+
 /* ── Doğrulama ────────────────────────────────────────────────────────── */
 export {
   verify,

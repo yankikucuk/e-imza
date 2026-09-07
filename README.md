@@ -1,14 +1,15 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.2.0 — kararlı.** XAdES'in **beş seviyesi de** hazır:
-> BES, EPES, T, LT, LTA. Yanında RFC 3161 zaman damgası, RFC 6960 OCSP,
-> CMS okuma, kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel
-> imza. Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir.
-> CAdES, PAdES ve ASiC yol haritasında ve katkısal.
+> **Durum: 1.3.0 — kararlı.** **XAdES** (BES, EPES, T, LT, LTA) ve
+> **CAdES** (BES, EPES, T, LT). Yanında RFC 3161 zaman damgası, RFC 6960
+> OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve
+> paralel imza. Public API kararlıdır; kırıcı değişiklik ana sürüm
+> yükseltir. PAdES ve ASiC yol haritasında ve katkısal.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
-belgeleri doğrular.
+belgeleri doğrular. XML belgeler için **XAdES**, ikili veri için
+**CAdES**.
 
 Çalışma zamanı bağımlılığı **yoktur**. Gereken her şey — kanonikleştirme,
 ASN.1, PKCS#12, hatta artık Node'un kriptografisinde bulunmayan RC2 ve
@@ -451,6 +452,97 @@ teste bağlandı — hangi parçaların hangi sırayla girdiğini sabitleyen ayr
 bir iddia var. Yine de, LTA imzalarınızı üretime almadan önce karşı tarafın
 doğrulayıcısıyla denemenizi öneririm.
 
+## CAdES — ikili veri imzası
+
+XML olmayan her şey için: PDF, ZIP, e-reçete, ham veri. Aynı imza
+politikaları, aynı taahhüt türleri, aynı seviye merdiveni; farkı taşıyıcı —
+XML yerine CMS (RFC 5652).
+
+```ts
+import { cadesSign, cadesVerify, loadPkcs12 } from '@yankikucuk/e-imza'
+import { readFileSync } from 'node:fs'
+
+const { privateKey, certificate, chain } = loadPkcs12(p12, sifre)
+
+const imza = cadesSign({
+  data: readFileSync('belge.pdf'),
+  signer: { certificate, chain },
+  privateKey,
+  commitmentType: 'proof-of-origin',
+  signerLocation: { country: 'TR', locality: 'İstanbul' },
+})
+
+const sonuc = cadesVerify(imza)
+sonuc.valid && sonuc.level // 'BES'
+```
+
+### Gömülü ve ayrık
+
+Varsayılan **gömülü**: veri imzanın içinde taşınır, imza tek başına
+doğrulanabilir. Büyük dosyalarda **ayrık** tercih edilir:
+
+```ts
+const imza = cadesSign({ data, signer, privateKey, attached: false })
+
+// Doğrularken veri ayrıca verilmeli — yoksa açık hata.
+cadesVerify(imza, { content: data })
+```
+
+Ayrık imzada içerik verilmezse `cadesVerify` **geçersiz** döner, sessizce
+"geçerli" demez: veri olmadan imzanın neyi kapsadığı bilinemez.
+
+### CAdES-BES'i düz CMS'ten ayıran şey
+
+`signingCertificateV2` özniteliği (RFC 5035). İmzalayan sertifikanın
+özetini imzaya bağlar; olmadan imzayı doğrulayan sertifika yapının içinde
+değiştirilebilir.
+
+`cadesVerify` bu bağı denetler ve tutmazsa uyarır:
+
+```ts
+sonuc.level // 'CMS' — öznitelik hiç yoksa
+sonuc.warnings // [{ code: 'no-signing-certificate-attribute', … }]
+//              ya da [{ code: 'signing-certificate-digest-mismatch', … }]
+```
+
+### Seviye yükseltme
+
+XAdES'teki desenin aynısı; ağ isteği yine kütüphanede değil:
+
+```ts
+import { cadesTimestampRequest, cadesUpgrade } from '@yankikucuk/e-imza'
+
+const istek = cadesTimestampRequest({ cms: imza })
+// … TSA'ya gönder …
+const t = cadesUpgrade({ cms: imza, to: 'T', token: jeton })
+
+const lt = cadesUpgrade({
+  cms: t,
+  to: 'LT',
+  certificates: [araCa, kokCa],
+  ocspResponses: [yanit.der],
+})
+```
+
+Yükseltme imzayı bozmaz: eklenen her şey `unsignedAttrs` altına gider ve o
+alan imzaya dâhil değildir.
+
+### XAdES ile arasındaki tek ince fark
+
+**ECDSA imzasının biçimi.** XMLDSig ham `r‖s` ister, CMS ise DER
+`SEQUENCE { r, s }`. Kütüphane bunu kendi hallediyor, ama `prepare()` /
+`complete()` ile dışarıda imzalıyorsanız kartınızın hangi biçimi ürettiğine
+dikkat edin — aynı kartın çıktısı iki yerde farklı sarılır.
+
+### Doğrulama
+
+CAdES çıktısı **OpenSSL ile çapraz doğrulandı**: `openssl cms -verify`
+ürettiğimiz imzaları kabul ediyor — gömülü, ayrık, SHA-384/512, EC anahtar,
+EPES, T'ye ve LT'ye yükseltilmiş hâlleriyle. Bu, `signedAttrs` kodlamasının,
+`SET` etiketi dönüşümünün, `SignerInfo` alan sırasının ve `messageDigest`
+bağının hepsinin doğru olduğunu birlikte gösteriyor; kendi doğrulayıcımızla
+test etmek bunların hiçbirini göstermezdi.
+
 ## Kanonikleştirme
 
 Kanonikleştirici ayrıca kullanılabilir. **Canonical XML 1.0** ve
@@ -510,14 +602,17 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**CAdES, PAdES, ASiC** — sırasıyla ikili veri, PDF ve konteyner imzası.
-CAdES, XAdES-T ile birlikte yazılan CMS çekirdeğinin üstüne oturuyor;
-PAdES CAdES'i yeniden kullanıyor. Sıra bu yüzden doğal:
-**CAdES → PAdES → ASiC**.
+**PAdES ve ASiC** — PDF imzası ve imzalı konteyner. PAdES, CAdES'in
+üstüne oturuyor: PDF'e gömülen şey ayrık bir CMS imzasıdır ve o çekirdek
+artık hazır. Sıra: **PAdES → ASiC**.
+
+**CAdES-LTA** — arşiv zaman damgası. CAdES'in `archive-timestamp-v3`
+girdisi XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak
+istemedim; okunduğunda kriptografik geçerliliği bildiriliyor ama seviye
+yükseltmiyor.
 
 **CRL ayrıştırma** — CRL'ler LT seviyesine gömülebiliyor ama içerikleri
-çözümlenmiyor; iptal denetimi için OCSP yolu tam. CRL çözümlemesi
-CAdES ile birlikte gelecek.
+çözümlenmiyor; iptal denetimi için OCSP yolu tam.
 
 **PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. Bugün de
 kullanılabilirler: `prepare()` / `complete()` ile kendi PKCS#11
@@ -607,7 +702,7 @@ PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
 
 ```bash
 npm install
-npm test              # 328 test
+npm test              # 352 test
 npm run test:coverage
 npm run typecheck
 npm run lint
