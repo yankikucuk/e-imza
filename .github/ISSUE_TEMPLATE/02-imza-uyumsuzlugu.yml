@@ -37,7 +37,7 @@ body:
     id: surum
     attributes:
       label: Kütüphane sürümü
-      placeholder: '0.1.0'
+      placeholder: '1.0.0'
     validations: { required: true }
   - type: textarea
     id: hata

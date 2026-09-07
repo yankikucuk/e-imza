@@ -1,10 +1,10 @@
 # @yankikucuk/e-imza
 
-> **Durum: 0.1.0 — erken sürüm.** XAdES-BES/EPES imzalama ve doğrulama,
-> kanonikleştirme, PKCS#12 kap okuma ve ayrık imzalama hazır ve
-> sınanmış durumda. Public API henüz kararlı sayılmamalı; 1.0.0'a kadar
-> kırıcı değişiklik olabilir. Zaman damgası (XAdES-T), CAdES, PAdES ve
-> ASiC yol haritasında.
+> **Durum: 1.0.0 — kararlı.** XAdES-BES/EPES imzalama ve doğrulama,
+> kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel imza
+> hazır. Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir.
+> Zaman damgası (XAdES-T), CAdES, PAdES ve ASiC yol haritasında ve
+> hepsi katkısal — mevcut çağrılarınızı bozmayacaklar.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
@@ -103,6 +103,137 @@ if (sonuc.valid) {
 `@yankikucuk/ubl-tr` ile birlikte kullanıldığında fatura üretimi ve
 imzalama uçtan uca tamamlanır; iki paket birbirini import etmez, imza
 katmanı belge katmanını bilmez.
+
+## `@yankikucuk/ubl-tr` ile birlikte
+
+İki paket birbirini **import etmez**. Bu bilinçli: imza katmanı belge
+katmanını bilmemeli, belge katmanı da imza katmanını. Aralarındaki bağ tek
+bir yapısal sözleşme — UBL-TR belgesindeki boş `ext:ExtensionContent`.
+`ubl-tr` onu boş bırakır, `e-imza` doldurur.
+
+Sonuç: `ubl-tr` kullanmayanlar `e-imza`'yı kendi XML'leriyle kullanabilir,
+`e-imza` kullanmayanlar `ubl-tr` faturasını başka bir araçla imzalayabilir.
+
+```bash
+npm install @yankikucuk/ubl-tr @yankikucuk/e-imza
+```
+
+### Uçtan uca: üret → imzala → doğrula → oku
+
+```ts
+import {
+  buildInvoiceXml,
+  InvoiceProfile,
+  InvoiceType,
+  parseDocument,
+  parseInvoice,
+  validateInvoiceRules,
+} from '@yankikucuk/ubl-tr'
+import { loadPkcs12, sign, verify } from '@yankikucuk/e-imza'
+import { readFileSync } from 'node:fs'
+
+// ── 1. Belge: ubl-tr üretir ───────────────────────────────────────────
+// Toplamları kütüphane hesaplar; imza zarfı (boş ext:ExtensionContent)
+// varsayılan olarak yazılır.
+const fatura = buildInvoiceXml({
+  id: 'ABC2026000000001',
+  uuid: '1a2b3c4d-0001-4000-8001-000000000001',
+  issueDate: '2026-09-07',
+  profile: InvoiceProfile.TEMEL,
+  type: InvoiceType.SATIS,
+  supplier: {
+    taxNumber: '1234567890',
+    name: 'ÖRNEK SATICI A.Ş.',
+    taxOffice: 'Kadıköy',
+    address: { district: 'Kadıköy', city: 'İstanbul' },
+  },
+  customer: {
+    taxNumber: '9876543210',
+    name: 'Örnek Alıcı Ltd. Şti.',
+    address: { district: 'Çankaya', city: 'Ankara' },
+  },
+  lines: [{ name: 'Danışmanlık hizmeti', quantity: 10, unitPrice: 100, vatRate: 20 }],
+})
+
+// ── 2. İmza: e-imza mali mühürle imzalar ──────────────────────────────
+const { privateKey, certificate, chain } = loadPkcs12(
+  new Uint8Array(readFileSync('mali-muhur.p12')),
+  process.env.MUHUR_SIFRESI ?? '',
+)
+
+const imzali = sign({
+  xml: fatura,
+  signer: { certificate, chain },
+  privateKey,
+  commitmentType: 'proof-of-origin',
+  productionPlace: { city: 'İstanbul', country: 'TR' },
+})
+
+// ── 3. Doğrulama ──────────────────────────────────────────────────────
+const imza = verify(imzali)
+if (!imza.valid) throw new Error(`İmza geçersiz: ${imza.reason}`)
+
+// İmzalayanın beklediğiniz mükellef olduğunu ayrıca doğrulayın.
+// Türk sertifikalarında VKN/TCKN konudaki serialNumber alanında taşınır.
+if (imza.signer.subjectSerialNumber !== '1234567890') {
+  throw new Error('İmza başka bir mükellefe ait')
+}
+
+// ── 4. Okuma: ubl-tr imzalı belgeyi hâlâ okur ─────────────────────────
+// İmza belgeyi bozmaz; ubl-tr onu ayrıştırır ve iş kurallarını denetler.
+const { root } = parseDocument(imzali)
+const okunan = parseInvoice(root)
+const kurallar = validateInvoiceRules(root)
+
+console.log(okunan.id) // 'ABC2026000000001'
+console.log(okunan.supplier?.name) // 'ÖRNEK SATICI A.Ş.'
+console.log(kurallar.valid) // true
+```
+
+> `parseInvoice` ve `validateInvoiceRules` **XML dizesi değil, ayrıştırılmış
+> kök öğe** alır — önce `parseDocument` çağırın. Doğrudan dize verirseniz
+> TypeScript uyarır, ama düz JavaScript'te sessizce boş sonuç dönersiniz.
+
+### Neden ayrı paketler
+
+|                      | `@yankikucuk/ubl-tr`               | `@yankikucuk/e-imza`                  |
+| -------------------- | ---------------------------------- | ------------------------------------- |
+| Sorumluluk           | belge üretimi, okuma, iş kuralları | kanonikleştirme, imza, doğrulama      |
+| Bilmediği            | XAdES, sertifika, kanonik biçim    | UBL, KDV, tevkifat, fatura profilleri |
+| Bağımlılık           | sıfır                              | sıfır                                 |
+| Birbirine bağımlılık | **yok**                            | **yok**                               |
+
+İmzasız kullanım da anlamlıdır: e-Arşiv portal akışında belge GİB tarafında
+imzalanır, siz yalnızca üretirsiniz. İmzayı ayrı tutmak o senaryoyu
+zorunlu bir bağımlılıkla ağırlaştırmıyor.
+
+### Sırayı bozmayın
+
+İmza belgenin **son** adımıdır. İmzaladıktan sonra XML'e dokunmak — bir
+boşluk eklemek bile — imzayı geçersiz kılar; kanonikleştirme boşluğu
+"temizlemez", çünkü temizleseydi imza kapsamı belirsizleşirdi.
+
+```ts
+const imzali = sign({ xml: fatura, signer, privateKey })
+const bozuk = imzali.replace('118.00', '119.00')
+
+verify(bozuk).valid // false — tek bir rakam yetti
+```
+
+### e-İrsaliye
+
+Aynı akış `buildDespatchAdviceXml` ile de çalışır; e-İrsaliye de aynı
+`ext:UBLExtensions` yapısını taşır ve `placement` varsayılanı değişmez.
+
+```ts
+import { buildDespatchAdviceXml } from '@yankikucuk/ubl-tr'
+
+const imzali = sign({
+  xml: buildDespatchAdviceXml(irsaliye),
+  signer: { certificate, chain },
+  privateKey,
+})
+```
 
 ## Akıllı kart, HSM ve uzak imza
 

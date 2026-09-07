@@ -3,7 +3,7 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
-## [0.1.0] — 2026-09-07
+## [1.0.0] — 2026-09-07
 
 İlk sürüm. XAdES imzalama ve doğrulama, kanonikleştirme, PKCS#12 kap okuma.
 
@@ -66,4 +66,4 @@ ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
-[0.1.0]: https://github.com/yankikucuk/e-imza/releases/tag/v0.1.0
+[1.0.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.0.0

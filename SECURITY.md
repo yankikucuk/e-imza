@@ -9,10 +9,10 @@ birbirinden farklıdır.
 
 | Sürüm | Güvenlik düzeltmesi alır  |
 | ----- | ------------------------- |
-| `0.x` | Evet — en son yama sürümü |
+| `1.x` | Evet — en son yama sürümü |
 
-`1.0.0` yayımlandığında bu tablo güncellenecektir. Düzeltmeler yalnızca en
-son yayımlanan yama sürümü üzerinden gelir.
+Düzeltmeler yalnızca en son yayımlanan yama sürümü üzerinden gelir; eski bir
+yama sürümüne geriye dönük düzeltme yapılmaz.
 
 ## Açık bildirme
 
