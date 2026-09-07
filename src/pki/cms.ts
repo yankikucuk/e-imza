@@ -192,8 +192,13 @@ const parseSignerInfo = (node: DerNode): CmsSignerInfo => {
     serialNumber = asInteger(serialNode)
   }
 
-  // [0] IMPLICIT signedAttrs — varsa üçüncü alandan sonra gelir.
-  const signedAttrsNode = fields.find((f) => f.tagClass === 'context' && f.tagNumber === 0)
+  // [0] IMPLICIT signedAttrs — varsa ÜÇÜNCÜ alandan SONRA gelir ve arama
+  // oradan başlamak ZORUNDA: `sid` de bir CHOICE'tır ve
+  // `subjectKeyIdentifier` seçildiğinde o da `[0]` etiketi taşır. Baştan
+  // aramak, SKI ile imzalanmış bir yapıda `sid`i `signedAttrs` sanmaya ve
+  // imzayı sessizce yanlış baytlar üzerinde doğrulamaya yol açar. Bazı
+  // TSA'lar jetonlarında SKI kullanıyor.
+  const signedAttrsNode = fields.slice(3).find((f) => f.tagClass === 'context' && f.tagNumber === 0)
   let signedAttributesDer: Uint8Array | undefined
   if (signedAttrsNode !== undefined) {
     // Dış etiketi `[0] IMPLICIT`ten `SET`e çevir: RFC 5652 §5.4 imzanın

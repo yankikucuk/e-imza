@@ -1,9 +1,9 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.6.0 — kararlı.** Üç imza biçimi ve konteyneri: **XAdES**
-> (BES, EPES, T, LT, LTA), **CAdES** (BES, EPES, T, LT), **PAdES**
-> (B-B, B-T, **B-LT**, **B-LTA**) ve **ASiC** (S ve E). Yanında RFC 3161
-> zaman damgası,
+> **Durum: 1.7.0 — kararlı.** Üç imza biçimi ve konteyneri, **hepsi arşiv
+> seviyesine kadar**: **XAdES** (BES, EPES, T, LT, LTA), **CAdES**
+> (BES, EPES, T, LT, **LTA**), **PAdES** (B-B, B-T, B-LT, B-LTA) ve **ASiC**
+> (S ve E). Yanında RFC 3161 zaman damgası,
 > RFC 6960 OCSP, RFC 5652 CMS, kanonikleştirme, PKCS#12 kap okuma, ayrık
 > imzalama ve paralel imza. Public API kararlıdır; kırıcı değişiklik ana
 > sürüm yükseltir.
@@ -529,6 +529,76 @@ const lt = cadesUpgrade({
 Yükseltme imzayı bozmaz: eklenen her şey `unsignedAttrs` altına gider ve o
 alan imzaya dâhil değildir.
 
+### LTA — arşiv damgası (`archive-time-stamp-v3`)
+
+Kaynak: **ETSI TS 101 733 V2.2.1 §6.4.2 ve §6.4.3.**
+
+```ts
+import { cadesArchiveTimestamp, parseTimestampResponse } from '@yankikucuk/e-imza'
+
+const bekleyen = cadesArchiveTimestamp({ cms: lt })
+
+const yanit = await fetch(tsaUrl, {
+  method: 'POST',
+  headers: { 'content-type': 'application/timestamp-query' },
+  body: bekleyen.request,
+})
+
+const lta = bekleyen.finish(parseTimestampResponse(new Uint8Array(await yanit.arrayBuffer())))
+```
+
+Damgalanan girdi, §6.4.3'ün dört maddeli listesi — bu sırayla:
+
+| #   | bileşen                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | `SignedData.encapContentInfo.eContentType`                                                                     |
+| 2   | İmzalanan verinin **özeti** — verinin kendisi değil                                                            |
+| 3   | `SignerInfo`nun `version`, `sid`, `digestAlgorithm`, `signedAttrs`, `signatureAlgorithm`, `signature` alanları |
+| 4   | Tek bir `ATSHashIndex`                                                                                         |
+
+İki nokta bu tasarımın tamamını açıklıyor:
+
+**`unsignedAttrs` girdiye girmiyor.** Girseydi damga, eklendiği anda kendi
+girdisini değiştirir ve kendi kendini geçersiz kılardı. İkinci bir arşiv
+damgası da aynı sebeple mümkün.
+
+**`unsignedAttrs` yine de korumasız kalmıyor.** `ATSHashIndex`, o an mevcut
+her sertifikanın, her iptal kaydının ve her imzalanmamış özniteliğin özetini
+tutuyor ve kendisi girdinin dördüncü bileşeni. Doğrulamada bu indeks
+belgeyle karşılaştırılıyor; damgadan sonra eklenen bir bileşen
+`coversAllComponents: false` ve `archive-timestamp-partial-coverage`
+uyarısıyla raporlanıyor.
+
+`ats-hash-index`, §6.4.3'ün şart koştuğu gibi **jetonun kendi**
+`unsignedAttrs`ına yazılıyor; jetonun imzası `signedAttrs` üzerinde olduğu
+için bu onu bozmuyor.
+
+### Arşiv damgasında doğrulanan ve doğrulanamayan
+
+Bu paketin genel kuralı, kendi kendini doğrulayan koda güvenmemek. Arşiv
+damgasında o kural en çok zorlanıyor, çünkü **girdi hesabını sınayacak
+bağımsız bir uygulama bulunamadı** — bu formatı doğrulayan olgun açık
+kaynaklı uygulama ETSI DSS (Java) ve bu paketin test zinciri Node ile
+sınırlı.
+
+Bu yüzden bağımsızlık üç ayrı yerden geliyor:
+
+| ne                                                                    | bağımsız tanık                  |
+| --------------------------------------------------------------------- | ------------------------------- |
+| Jetonun imzası ve `messageImprint`in girdimizin özeti oluşu           | `openssl ts -verify -token_in`  |
+| `SignerInfo` alanlarının ham dilimleri, `ATSHashIndex` kodlaması, OID | `openssl asn1parse`             |
+| İndeksteki her özet, sertifika sayısı                                 | `openssl dgst`, `openssl pkcs7` |
+
+**Kalan boşluk, açıkça:** bileşenlerin **sırası** standardın metninden alındı
+ve bir ETSI uygulamasıyla karşılaştırılamadı. Sıra, testte §6.4.3'ün
+maddeleriyle birlikte yazılı ve elle kurulmuş bir beklentiyle sabitlendi —
+ama üretime almadan önce karşı tarafın doğrulayıcısıyla denemenizi öneririm.
+Aynı uyarı XAdES-LTA için de geçerli.
+
+**ATSv2** (`1.2.840.113549.1.9.16.2.48`) okunuyor ama **üretilmiyor ve
+doğrulanmıyor**: girdi hesabı ATSv3'ten farklı. Belgede varsa
+`archive-timestamp-v2-unverified` uyarısı çıkıyor ve seviye yükselmiyor.
+
 ### XAdES ile arasındaki tek ince fark
 
 **ECDSA imzasının biçimi.** XMLDSig ham `r‖s` ister, CMS ise DER
@@ -858,6 +928,7 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 |                     |                                                            |
 | ------------------- | ---------------------------------------------------------- |
 | **XAdES**           | BES, EPES, T, **LT**, **LTA** — beş seviye                 |
+| **CAdES**           | BES, EPES, T, LT, **LTA** — `archive-time-stamp-v3`        |
 | **PAdES**           | B-B, B-T, **B-LT**, **B-LTA** — `/DSS` ve `/DocTimeStamp`  |
 | **Zaman damgası**   | RFC 3161 — istek üretme, jeton doğrulama, seviye yükseltme |
 | **İptal denetimi**  | RFC 6960 OCSP — istek üretme, yanıt doğrulama              |
@@ -872,10 +943,9 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde yok
 
-**CAdES-LTA** — arşiv zaman damgası. `archive-timestamp-v3` girdisi
-XAdES'inkinden farklı ve bağımsız doğrulama olmadan yazmak istemedim;
-okunduğunda kriptografik geçerliliği bildiriliyor ama seviye yükseltmiyor.
-Sıradaki iş.
+**CAdES ATSv2 arşiv damgası** — ATSv3 üretiliyor ve doğrulanıyor; ATSv2'nin
+girdi hesabı farklı (TS 101 733 v1.8.3 §6.4.1) ve bağımsız doğrulama olmadan
+yazılmadı. Belgede varsa uyarı çıkıyor, seviye yükseltmiyor.
 
 **PAdES `/VRI` başına ayrı malzeme** — `/VRI` yazılıyor ama belgedeki bütün
 malzeme her imzaya bağlanıyor. Hangi sertifikanın hangi imzaya ait olduğunu
@@ -900,7 +970,7 @@ reddediliyor.
 **CRL ayrıştırma** — CRL'ler LT seviyesine gömülebiliyor ama içerikleri
 çözümlenmiyor; iptal denetimi için OCSP yolu tam.
 
-**PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. Bugün de
+**PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. **Sıradaki iş.** Bugün de
 kullanılabilirler: `prepare()` / `complete()` ile kendi PKCS#11
 katmanınızı bağlayın. Yerleşik destek, yerel eklenti derlemesi gerektirdiği
 için sıfır bağımlılık ilkesiyle ayrıca değerlendirilecek.
@@ -995,7 +1065,7 @@ imzasıdır ve PAdES kendi kriptografisini getirmez.
 
 ```bash
 npm install
-npm test              # 491 test
+npm test              # 511 test
 npm run test:coverage
 npm run typecheck
 npm run lint

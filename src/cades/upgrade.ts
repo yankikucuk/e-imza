@@ -1,15 +1,21 @@
-import { asSequence, decodeDer, derSetOf, type DerNode } from '../asn1/der.js'
 import { SigningError } from '../core/errors.js'
-import { cmsDigest, type CmsDigest } from '../pki/cms-build.js'
+import { cmsAttribute, cmsDigest, type CmsDigest } from '../pki/cms-build.js'
 import { parseCmsSignedData } from '../pki/cms.js'
 import { buildTimestampRequest, verifyTimestampToken } from '../pki/tsp.js'
 
+import {
+  archiveTimestampInput,
+  ATS_HASH_INDEX_OID,
+  buildAtsHashIndex,
+  readArchiveComponents,
+} from './archive.js'
 import {
   certificateValuesAttribute,
   revocationValuesAttribute,
   timestampAttribute,
 } from './attributes.js'
 import { UnsignedAttribute } from './constants.js'
+import { addUnsignedAttributes } from './edit.js'
 
 /**
  * CAdES seviye yükseltme — **T** ve **LT**.
@@ -137,95 +143,110 @@ const signerSignature = (cms: Uint8Array): Uint8Array => {
   return signer.signature
 }
 
+/** {@link cadesArchiveTimestamp} seçenekleri. */
+export interface CadesArchiveTimestampOptions {
+  /** Yükseltilecek CMS yapısı (DER). */
+  readonly cms: Uint8Array
+  /**
+   * Ayrık imzada dışarıda tutulan veri.
+   *
+   * Zorunlu: girdinin ikinci bileşeni imzalanan verinin özetidir ve ayrık
+   * imzada veri yapının içinde yoktur.
+   */
+  readonly content?: Uint8Array
+  /** Özet algoritması; varsayılan `sha256`. */
+  readonly digest?: CmsDigest
+  readonly policyOid?: string
+  readonly nonce?: bigint
+  readonly requestCertificate?: boolean
+}
+
+/** Jetonu beklenen arşiv zaman damgası. */
+export interface PendingCadesArchiveTimestamp {
+  /** TSA'ya `application/timestamp-query` olarak gönderilecek istek. */
+  readonly request: Uint8Array
+  /** Damgalanan girdinin özeti. */
+  readonly messageImprint: Uint8Array
+  /** Damgalanan baytlar; girdiyi kendiniz incelemek isterseniz. */
+  readonly stampedBytes: Uint8Array
+  /** Girdiye giren `ATSHashIndex` (DER). */
+  readonly atsHashIndex: Uint8Array
+  /**
+   * Jetonu yerleştirir ve LTA seviyesindeki CMS'i döndürür.
+   *
+   * İki iş yapılıyor: `ats-hash-index` jetonun KENDİ `unsignedAttrs`ına
+   * ekleniyor (§6.4.3 bunu şart koşuyor; imzalanmamış alan olduğu için
+   * jetonun imzası bozulmuyor), sonra jeton `archive-time-stamp-v3`
+   * özniteliği olarak imzaya ekleniyor.
+   *
+   * @throws {SigningError} Jeton bu girdiyi damgalamıyorsa
+   */
+  readonly finish: (token: Uint8Array, options?: { readonly verifyToken?: boolean }) => Uint8Array
+}
+
 /**
- * `SignerInfo`ya imzalanmamış öznitelik ekler.
+ * Arşiv zaman damgası (LTA) hazırlar — ETSI TS 101 733 §6.4.3.
  *
- * Yapı **yeniden kodlanmaz**: `SignerInfo`nun kaynaktaki baytları alınır,
- * yalnızca `unsignedAttrs` alanı değiştirilir ve dış kaplar yeniden
- * kurulur. Yeniden kodlamak, kaynağın DER'e tam uymadığı durumlarda
- * `signedAttrs` baytlarını değiştirir ve imza tutmaz.
+ * İstek ile yerleştirme **tek bir kapanışta** tutuluyor: girdinin dördüncü
+ * bileşeni `ATSHashIndex` ve o indeks iki yerde ayrı ayrı hesaplanırsa
+ * baytları ayrışabilir; ayrıştığı an damga hiçbir doğrulayıcıda tutmaz.
+ *
+ * @param options - {@link CadesArchiveTimestampOptions}
+ * @returns Jetonu bekleyen damga
+ *
+ * @example
+ * ```ts
+ * const bekleyen = cadesArchiveTimestamp({ cms: ltImza })
+ * const yanit = await fetch(tsaUrl, {
+ *   method: 'POST',
+ *   headers: { 'content-type': 'application/timestamp-query' },
+ *   body: bekleyen.request,
+ * })
+ * const lta = bekleyen.finish(
+ *   parseTimestampResponse(new Uint8Array(await yanit.arrayBuffer())),
+ * )
+ * ```
  */
-const addUnsignedAttributes = (cms: Uint8Array, attributes: readonly Uint8Array[]): Uint8Array => {
-  const contentInfo = asSequence(decodeDer(cms))
-  const contentNode = contentInfo[1]
-  if (contentNode === undefined) throw new SigningError('ContentInfo içeriği yok.')
-  const signedDataNode = contentNode.children[0]
-  if (signedDataNode === undefined) throw new SigningError('SignedData yok.')
-  const fields = asSequence(signedDataNode)
+export const cadesArchiveTimestamp = (
+  options: CadesArchiveTimestampOptions,
+): PendingCadesArchiveTimestamp => {
+  const digest = options.digest ?? 'sha256'
+  const components = readArchiveComponents(options.cms)
+  const atsHashIndex = buildAtsHashIndex(components, digest)
+  const stampedBytes = archiveTimestampInput(components, atsHashIndex, digest, options.content)
+  const messageImprint = cmsDigest(digest, stampedBytes)
 
-  const signerInfosIndex = findLastSetIndex(fields)
-  const signerInfosNode = fields[signerInfosIndex]
-  if (signerInfosNode === undefined) throw new SigningError('signerInfos yok.')
-  const signers = signerInfosNode.children
-  const signer = signers[0]
-  if (signer === undefined) throw new SigningError('CMS yapısında imzacı yok.')
-
-  const signerFields = asSequence(signer)
-  const unsignedIndex = signerFields.findIndex(
-    (field) => field.tagClass === 'context' && field.tagNumber === 1,
-  )
-  // Var olan öznitelikler korunur; yenileri eklenir. Zaman damgası üstüne
-  // zaman damgası eklenebilmesi bunu gerektiriyor.
-  const existing =
-    unsignedIndex === -1
-      ? []
-      : (signerFields[unsignedIndex]?.children ?? []).map((node) => node.raw)
-  const kept =
-    unsignedIndex === -1
-      ? signerFields.map((field) => field.raw)
-      : signerFields.filter((_, index) => index !== unsignedIndex).map((field) => field.raw)
-
-  const merged = derSetOf(...existing, ...attributes)
-  const tagged = new Uint8Array(merged)
-  tagged[0] = 0xa1
-
-  const newSigner = wrapSequence([...kept, tagged])
-  const newSignerInfos = wrapSet(signers.map((node, index) => (index === 0 ? newSigner : node.raw)))
-  const newSignedData = wrapSequence(
-    fields.map((field, index) => (index === signerInfosIndex ? newSignerInfos : field.raw)),
-  )
-  const newContent = wrapExplicit(0, newSignedData)
-  return wrapSequence([contentInfo[0]?.raw ?? new Uint8Array(0), newContent])
-}
-
-/** `signerInfos` alanının konumu — yapının SON `SET`i. */
-const findLastSetIndex = (fields: readonly DerNode[]): number => {
-  for (let index = fields.length - 1; index >= 0; index -= 1) {
-    const field = fields[index]
-    if (field?.tagClass === 'universal' && field.tagNumber === 17) return index
+  return {
+    request: buildTimestampRequest({
+      messageImprint,
+      hashAlgorithm: digest,
+      ...(options.policyOid === undefined ? {} : { policyOid: options.policyOid }),
+      ...(options.nonce === undefined ? {} : { nonce: options.nonce }),
+      ...(options.requestCertificate === undefined
+        ? {}
+        : { requestCertificate: options.requestCertificate }),
+    }),
+    messageImprint,
+    stampedBytes,
+    atsHashIndex,
+    finish: (token, finishOptions = {}): Uint8Array => {
+      if (finishOptions.verifyToken !== false) {
+        const outcome = verifyTimestampToken(token, {
+          data: stampedBytes,
+          ...(options.nonce === undefined ? {} : { nonce: options.nonce }),
+        })
+        if (!outcome.valid) {
+          throw new SigningError(`Arşiv damgası bu imzayı damgalamıyor: ${outcome.reason}`)
+        }
+      }
+      // `ats-hash-index` jetonun kendi imzacısına ekleniyor. Jetonun imzası
+      // `signedAttrs` üzerinde; `unsignedAttrs` ona dâhil değil.
+      const withIndex = addUnsignedAttributes(token, [
+        cmsAttribute(ATS_HASH_INDEX_OID, atsHashIndex),
+      ])
+      return addUnsignedAttributes(options.cms, [
+        timestampAttribute(UnsignedAttribute.ARCHIVE_TIMESTAMP_V3, withIndex),
+      ])
+    },
   }
-  return -1
-}
-
-/* Kodlanmış parçaları yeniden sarmak için küçük yardımcılar. Uzunluk
-   yeniden hesaplandığı için `der.ts` yazıcıları kullanılıyor. */
-const wrapSequence = (items: readonly Uint8Array[]): Uint8Array => encode(0x30, items)
-const wrapSet = (items: readonly Uint8Array[]): Uint8Array => encode(0x31, items)
-const wrapExplicit = (tagNumber: number, item: Uint8Array): Uint8Array =>
-  encode(0xa0 | tagNumber, [item])
-
-/** Verilen etiketle bir kurgusal değer kodlar. */
-const encode = (tag: number, items: readonly Uint8Array[]): Uint8Array => {
-  let length = 0
-  for (const item of items) length += item.length
-  const header: number[] = [tag]
-  if (length < 0x80) {
-    header.push(length)
-  } else {
-    const bytes: number[] = []
-    let remaining = length
-    while (remaining > 0) {
-      bytes.unshift(remaining & 0xff)
-      remaining = Math.floor(remaining / 256)
-    }
-    header.push(0x80 | bytes.length, ...bytes)
-  }
-  const out = new Uint8Array(header.length + length)
-  out.set(header)
-  let offset = header.length
-  for (const item of items) {
-    out.set(item, offset)
-    offset += item.length
-  }
-  return out
 }

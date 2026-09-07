@@ -258,6 +258,43 @@ describe.skipIf(!canGenerateKeyMaterial())('CAdES', () => {
         'no-signing-certificate-attribute',
       )
     })
+
+    /**
+     * `sid` bir CHOICE'tır: `issuerAndSerialNumber` (SEQUENCE) ya da
+     * `[0] subjectKeyIdentifier`. İkinci seçenekte `sid` de `[0]` etiketi
+     * taşır ve `signedAttrs` de `[0] IMPLICIT`tir — `signedAttrs`ı yapının
+     * BAŞINDAN aramak, SKI ile imzalanmış her yapıda `sid`i `signedAttrs`
+     * sanmaya yol açar. Sonuç sessiz: imza tamamen yanlış baytlar üzerinde
+     * doğrulanır.
+     *
+     * `openssl cms -sign -keyid` tam olarak böyle bir yapı üretiyor. Bazı
+     * TSA'lar jetonlarında da SKI kullanıyor.
+     */
+    it('subjectKeyIdentifier ile imzalanmış CMS doğru okunuyor', () => {
+      const data = join(directory, 'ski-veri.bin')
+      const key = join(directory, 'ski.key')
+      const crt = join(directory, 'ski.crt')
+      const out = join(directory, 'ski.p7s')
+      writeFileSync(data, veri)
+      // prettier-ignore
+      execFileSync(OPENSSL, ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+        '-days', '365', '-keyout', key, '-out', crt, '-subj', '/CN=SKI Imzaci',
+        '-addext', 'subjectKeyIdentifier=hash'])
+      // `-keyid`: imzalayanı seri numarasıyla değil, anahtar kimliğiyle göster.
+      // prettier-ignore
+      execFileSync(OPENSSL, ['cms', '-sign', '-in', data, '-signer', crt, '-inkey', key,
+        '-outform', 'DER', '-out', out, '-md', 'sha256', '-nodetach', '-keyid'])
+
+      const cms = new Uint8Array(readFileSync(out))
+      const imzaci = parseCmsSignedData(cms).signerInfos[0]
+      expect(imzaci?.subjectKeyIdentifier).toBeDefined()
+      expect(imzaci?.serialNumber).toBeUndefined()
+      // `signedAttrs` SET olarak yeniden etiketlenmiş olmalı, `sid` değil.
+      expect(imzaci?.signedAttributesDer?.[0]).toBe(0x31)
+
+      const sonuc = cadesVerify(cms)
+      expect(sonuc.valid).toBe(true)
+    })
   })
 
   describe('sertifika bağı', () => {

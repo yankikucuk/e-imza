@@ -3,6 +3,76 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.7.0] — 2026-09-07
+
+CAdES-LTA — `archive-time-stamp-v3`. Üç imza biçiminin üçü de artık arşiv
+seviyesine kadar tam.
+
+### Eklendi
+
+- `cadesArchiveTimestamp()` — ETSI TS 101 733 §6.4.3 arşiv zaman damgası;
+  `prepare`/`finish` deyimi, `ATSHashIndex` istekle yerleştirme arasında
+  tek bir kapanışta tutuluyor
+- `buildAtsHashIndex()`, `parseAtsHashIndex()`, `checkAtsHashIndex()`,
+  `readArchiveComponents()`, `archiveTimestampInput()` — §6.4.2'nin
+  `ats-hash-index` yapısı, hem üretme hem inceleme için
+- `cadesVerify()` artık ATSv3'ü **gerçekten doğruluyor**: girdiyi jetondaki
+  indeksle yeniden kurup `messageImprint`e bağlıyor, indeksin belgedeki
+  bileşenleri karşıladığını ayrıca denetliyor (`coversAllComponents`)
+- Seviye `LTA`'ya çıkabiliyor — yalnızca doğrulanan arşiv damgasıyla
+
+### Düzeltildi
+
+- **`sid` ile `signedAttrs` karışıyordu.** `SignerInfo.sid` bir CHOICE'tır
+  ve `subjectKeyIdentifier` seçildiğinde o da `[0]` etiketi taşır;
+  `signedAttrs` yapının başından arandığı için SKI ile imzalanmış her
+  yapıda `sid` `signedAttrs` sanılıyordu. Sonuç sessizdi: imza tamamen
+  yanlış baytlar üzerinde doğrulanıyordu. `openssl cms -sign -keyid` ile
+  üretilen bir yapıyla gerileme testine bağlandı. Bazı TSA'lar jetonlarında
+  SKI kullanıyor
+
+### Kararlar
+
+- **ATSv2 üretilmiyor ve doğrulanmıyor.** Girdi hesabı ATSv3'ten farklı;
+  belgede varsa `archive-timestamp-v2-unverified` uyarısı çıkıyor ve seviye
+  yükselmiyor
+- **`unsignedAttrs` girdiye girmiyor** (§6.4.3 madde 3) — girseydi damga
+  eklendiği anda kendi girdisini değiştirirdi. Korumasız da kalmıyor:
+  `ATSHashIndex` üzerinden girdinin dördüncü bileşenine giriyor
+- **Girdinin ikinci bileşeni içeriğin ÖZETİ**, içeriğin kendisi değil
+  (§6.4.3 madde 2) — ve özet arşiv damgasının algoritmasıyla alınıyor
+- `SignerInfo` alanları kaynaktaki ham dilimleriyle taşınıyor; `signedAttrs`
+  burada `[0] IMPLICIT` etiketini KORUYOR (imzalama hesabındaki `SET`e
+  çevirme kuralı §6.4.3'te geçerli değil)
+
+### Doğrulamanın sınırı — dürüstçe
+
+CAdES arşiv damgasının **girdi hesabını sınayacak bağımsız bir uygulama
+bulunamadı**; bu formatı doğrulayan olgun açık kaynaklı uygulama ETSI DSS
+(Java) ve bu paketin test zinciri Node ile sınırlı. Bunun yerine üç ayrı
+bağımsız tanık kullanıldı:
+
+- `openssl ts -verify -token_in` — jetonun imzası ve `messageImprint`in
+  ürettiğimiz girdinin özeti oluşu
+- `openssl asn1parse` — `SignerInfo` alanlarının ham dilimleri,
+  `ATSHashIndex` kodlaması ve OID (OpenSSL onu `id-aa-ATSHashIndex` diye
+  adlandırıyor)
+- `openssl dgst` / `openssl pkcs7` — indeksteki her özet ve sertifika sayısı
+
+**Kalan boşluk:** bileşenlerin sırası standardın metninden alındı ve bir
+ETSI uygulamasıyla karşılaştırılamadı. Üretime almadan önce karşı tarafın
+doğrulayıcısıyla denenmeli.
+
+### Doğrulama
+
+- 20 yeni test; toplam 511
+- Mutasyon denemesi: 13 kasıtlı hata, ilk turda 2'si kaçtı — doğrulamanın
+  jetonu girdiye BAĞLAMAMASI ve sertifika indeksinin eksik üretilmesi.
+  İkisi de gerçek boşluktu ve teste bağlandı. İkincisi bu depodaki tekrar
+  eden tuzağın ders kitabı örneği: hem üretici hem doğrulayıcı aynı
+  fonksiyonu çağırdığı için beklenti de hatayla birlikte küçülüyordu;
+  çözüm, sayıyı OpenSSL'e ve ayrı bir ayrıştırıcıya saydırmak oldu
+
 ## [1.6.0] — 2026-09-07
 
 PAdES-LT ve PAdES-LTA — PDF'te uzun dönem doğrulanabilirlik.

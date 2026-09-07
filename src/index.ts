@@ -151,13 +151,28 @@ export {
 } from './cades/verify.js'
 
 export {
+  cadesArchiveTimestamp,
   cadesTimestampRequest,
   cadesUpgrade,
+  type CadesArchiveTimestampOptions,
   type CadesTimestampRequestInput,
   type CadesUpgradeOptions,
   type CadesUpgradeToLongTerm,
   type CadesUpgradeToTimestamp,
+  type PendingCadesArchiveTimestamp,
 } from './cades/upgrade.js'
+
+export {
+  archiveTimestampInput,
+  ATS_HASH_INDEX_OID,
+  buildAtsHashIndex,
+  checkAtsHashIndex,
+  parseAtsHashIndex,
+  readArchiveComponents,
+  type ArchiveComponents,
+  type AtsHashIndex,
+  type AtsHashIndexCheck,
+} from './cades/archive.js'
 
 export {
   COMMITMENT_OID as CADES_COMMITMENT_OID,
