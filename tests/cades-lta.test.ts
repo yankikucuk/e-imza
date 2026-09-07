@@ -348,17 +348,22 @@ describe.skipIf(!canGenerateKeyMaterial())('CAdES-LTA', () => {
     })
 
     /**
-     * OpenSSL bu OID'i TANIYOR ve dökümde adıyla yazıyor
-     * (`id-aa-ATSHashIndex`). Sayısal OID'i aramaktan güçlü bir kanıt:
-     * OID'i yanlış yazsaydık OpenSSL onu adlandıramaz, ham rakamları
-     * basardı.
+     * İndeks, jetonun `unsignedAttrs`ında olmalı — `signedAttrs`ında değil.
+     * Orada olsaydı jetonun imzası onu kapsardı ve TSA'nın imzalamadığı bir
+     * şeyi imzalamış gibi görünürdü.
+     *
+     * OID iki biçimde de kabul ediliyor: yeni OpenSSL sürümleri bu OID'i
+     * TANIYOR ve `id-aa-ATSHashIndex` diye yazıyor, eskileri ham rakamları
+     * basıyor. Ubuntu'daki 3.0 ile macOS'taki 3.6 arasındaki bu fark canlı
+     * olarak CI'da yaşandı; ikisini de kabul etmek doğrulamayı zayıflatmıyor
+     * çünkü aranan şey OID'in kendisi.
      */
-    it('ats-hash-index jetonun imzalanmamış özniteliklerinde — OpenSSL adıyla tanıyor', () => {
+    it('ats-hash-index jetonun imzalanmamış özniteliklerinde', () => {
       const gomulu = arsivJetonu(arsiv())
       const dokum = openssl(['asn1parse', '-inform', 'DER', '-in', dosya(gomulu, 'der'), '-i'])
-      expect(dokum).toContain('id-aa-ATSHashIndex')
-      // `cont [ 1 ]` = unsignedAttrs; indeks orada olmalı, signedAttrs'ta değil.
-      const at = dokum.indexOf('id-aa-ATSHashIndex')
+      const at = Math.max(dokum.indexOf('id-aa-ATSHashIndex'), dokum.indexOf('0.4.0.1733.2.5'))
+      expect(at).toBeGreaterThan(-1)
+      // `cont [ 1 ]` = unsignedAttrs; indeks ondan SONRA gelmeli.
       expect(dokum.slice(0, at)).toContain('cont [ 1 ]')
     })
   })
