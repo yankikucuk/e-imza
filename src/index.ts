@@ -39,6 +39,26 @@ export {
   type CanonicalizeOptions,
 } from './c14n/canonicalize.js'
 
+/* ── ASN.1 / DER ──────────────────────────────────────────────────────── */
+export {
+  asBitString,
+  asInteger,
+  asOctetString,
+  asOid,
+  asSequence,
+  asSet,
+  asString,
+  asTime,
+  decodeDer,
+  decodeDerAt,
+  DerTag,
+  type DerNode,
+  type DerTagClass,
+} from './asn1/der.js'
+
+/* ── Anahtar malzemesi ────────────────────────────────────────────────── */
+export { loadPkcs12, type LoadPkcs12Options, type Pkcs12Bundle } from './pki/pkcs12.js'
+
 /* ── Hatalar ──────────────────────────────────────────────────────────── */
 export {
   DerParseError,

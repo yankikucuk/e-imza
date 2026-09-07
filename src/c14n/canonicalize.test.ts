@@ -243,6 +243,37 @@ describe('alt küme ve ata bağlamı', () => {
     expect(canonicalize(doc, { algorithm: 'c14n10', subset: c })).toBe('<c xml:lang="en">x</c>')
   })
 
+  /**
+   * e-Fatura'nın gerçek yolu: imzalanan `xades:SignedProperties` her zaman
+   * belgenin ORTASINDA bir alt kümedir ve `ds:Reference URI="#…"` onu
+   * gösterir. Kapsayıcı biçim seçildiğinde ata ad alanı bildirimlerinin
+   * tepe öğeye taşınması ŞARTTIR.
+   *
+   * Ölçüldü (xmldsigjs 2.8.8, Eylül 2026): tam belge kanonikleştirmesinde
+   * libxml2 ile birebir aynı, ama alt kümede ata bildirimlerini taşımıyor —
+   * aşağıdaki beklentinin yerine `<Hedef xmlns="urn:ubl:Invoice-2" Id="x">
+   * <cbc:ID xmlns:cbc="urn:ubl:cbc">1</cbc:ID></Hedef>` üretiyor. Özet
+   * farklı çıkar, imza tutmaz.
+   */
+  it('UBL uzantısı içindeki alt küme ata bildirimlerini taşır', () => {
+    const doc = parseXml(
+      '<Invoice xmlns="urn:ubl:Invoice-2" xmlns:cbc="urn:ubl:cbc" xmlns:ext="urn:ubl:ext">' +
+        '<ext:UBLExtensions><ext:UBLExtension><ext:ExtensionContent>' +
+        '<Hedef Id="x"><cbc:ID>1</cbc:ID></Hedef>' +
+        '</ext:ExtensionContent></ext:UBLExtension></ext:UBLExtensions></Invoice>',
+    )
+    const hedef = [...walkElements(doc.root)].find((e) => e.localName === 'Hedef')!
+
+    expect(canonicalize(doc, { algorithm: 'c14n10', subset: hedef })).toBe(
+      '<Hedef xmlns="urn:ubl:Invoice-2" xmlns:cbc="urn:ubl:cbc" xmlns:ext="urn:ubl:ext" Id="x">' +
+        '<cbc:ID>1</cbc:ID></Hedef>',
+    )
+    // Dışlayıcı biçim kullanılmayan `ext`i atar; `cbc` alt öğede bildirilir.
+    expect(canonicalize(doc, { algorithm: 'exc-c14n', subset: hedef })).toBe(
+      '<Hedef xmlns="urn:ubl:Invoice-2" Id="x"><cbc:ID xmlns:cbc="urn:ubl:cbc">1</cbc:ID></Hedef>',
+    )
+  })
+
   it('miras yalnızca tepe öğeye uygulanır, alt öğelere tekrarlanmaz', () => {
     const doc = parseXml('<r xml:lang="tr"><c><d>x</d></c></r>')
     const c = [...walkElements(doc.root)].find((e) => e.localName === 'c')!
