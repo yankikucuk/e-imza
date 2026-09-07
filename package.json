@@ -110,7 +110,7 @@
     "@arethetypeswrong/cli": "0.18.5",
     "@eslint/js": "10.0.1",
     "@types/node": "26.4.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "@xmldom/xmldom": "0.9.12",
     "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",
@@ -124,7 +124,7 @@
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.0",
     "xadesjs": "2.6.8"
   },
   "publishConfig": {
