@@ -1,0 +1,28 @@
+name: CodeQL
+
+# Statik güvenlik analizi. Bu kütüphane güvenilmeyen XML ayrıştırır ve mali
+# belge üretir; enjeksiyon, kaçış hatası ve kaynak tüketimi sınıfı sorunlar
+# için otomatik tarama ucuz bir sigorta.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v4

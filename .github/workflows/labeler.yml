@@ -1,0 +1,26 @@
+name: PR etiketleme
+
+# Pull request'lere değişen dosya yollarına göre etiket atar.
+# Kural dosyası: .github/labeler.yml
+#
+# `pull_request_target` KASITLI: `pull_request` ile çalıştırıldığında fork'tan
+# gelen PR'lar salt-okunur token alır ve etiketleme sessizce başarısız olur.
+# Bu iş akışı PR'ın kodunu CHECKOUT ETMEZ ve ÇALIŞTIRMAZ — yalnızca değişen
+# dosya listesine bakar — bu yüzden `pull_request_target`'ın bilinen kod
+# çalıştırma riski burada yoktur.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v6
+        with:
+          sync-labels: true

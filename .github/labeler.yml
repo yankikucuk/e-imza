@@ -1,0 +1,76 @@
+# Pull request'lere değişen dosya yollarına göre otomatik etiket atar.
+# .github/workflows/labeler.yml tarafından çalıştırılır (actions/labeler).
+#
+# Buradaki her etiket labels.yml içinde TANIMLI OLMALIDIR; tanımsız bir
+# etiket ataması sessizce başarısız olur.
+#
+# Etiketler paketin katman düzenini yansıtır:
+#
+#                    sign / verify
+#                          │
+#                        xades
+#                    ┌─────┴─────┐
+#                  c14n         pki
+#                    │           │
+#                   xml        asn1
+#                    └─────┬─────┘
+#                        core
+
+'alan: çekirdek':
+  - changed-files:
+      - any-glob-to-any-file: 'src/core/**'
+
+'alan: xml':
+  - changed-files:
+      - any-glob-to-any-file: 'src/xml/**'
+
+'alan: kanonikleştirme':
+  - changed-files:
+      - any-glob-to-any-file: 'src/c14n/**'
+
+'alan: asn.1':
+  - changed-files:
+      - any-glob-to-any-file: 'src/asn1/**'
+
+'alan: pki':
+  - changed-files:
+      - any-glob-to-any-file: 'src/pki/**'
+
+'alan: xades':
+  - changed-files:
+      - any-glob-to-any-file: 'src/xades/**'
+
+'alan: imzalama':
+  - changed-files:
+      - any-glob-to-any-file: 'src/sign.ts'
+
+'alan: doğrulama':
+  - changed-files:
+      - any-glob-to-any-file: 'src/verify.ts'
+
+'tür: test':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.test.ts'
+          - 'tests/**'
+          - 'vitest.config.ts'
+
+'tür: dokümantasyon':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+          - 'examples/**'
+
+'tür: bakım':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'package.json'
+          - 'package-lock.json'
+          - 'tsconfig*.json'
+          - 'tsup.config.ts'
+          - 'eslint.config.ts'
+          - 'knip.json'
+          - '.prettierrc.json'
+          - '.editorconfig'

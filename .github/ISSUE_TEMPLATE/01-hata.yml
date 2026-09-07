@@ -1,0 +1,41 @@
+name: Hata bildirimi
+description: Kütüphane beklenenden farklı davranıyor
+labels: ['tür: hata', 'durum: inceleniyor']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Güvenlik açıkları buraya GİRMEZ.** XXE, varlık bombası, veri
+        sızıntısı gibi konuları
+        [özel güvenlik kanalından](https://github.com/yankikucuk/e-imza/security/advisories/new)
+        bildirin.
+  - type: input
+    id: surum
+    attributes:
+      label: Kütüphane sürümü
+      placeholder: '1.0.0'
+    validations: { required: true }
+  - type: input
+    id: node
+    attributes:
+      label: Node.js sürümü
+      placeholder: '22.14.0'
+    validations: { required: true }
+  - type: textarea
+    id: kod
+    attributes:
+      label: Yeniden üretebilen en küçük kod
+      description: Çalıştırıldığında hatayı üreten en kısa parça.
+      render: typescript
+    validations: { required: true }
+  - type: textarea
+    id: beklenen
+    attributes:
+      label: Ne bekliyordunuz
+    validations: { required: true }
+  - type: textarea
+    id: gozlenen
+    attributes:
+      label: Ne oldu
+      description: Hata mesajı veya üretilen çıktı.
+    validations: { required: true }

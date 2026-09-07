@@ -1,0 +1,63 @@
+name: İmza uyumsuzluğu
+description: Ürettiğimiz imza reddedildi ya da geçerli bir imzayı doğrulayamıyoruz
+labels: ['alan: birlikte çalışabilirlik', 'öncelik: yüksek']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bu şablon, kütüphanenin ürettiği imzayı **karşı tarafın kabul
+        etmediği** ya da geçerli bir imzayı **doğrulayamadığımız** durumlar
+        için.
+
+        **Gerçek bir mükellefe ait belge ya da sertifika yapıştırmayın.**
+        VKN, TCKN, ünvan ve tutarları değiştirin — sorunu yaratan neredeyse
+        her zaman **yapı**dır, değerler değil.
+
+        **Özel anahtarınızı hiçbir koşulda paylaşmayın.** Sorunu göstermek
+        için özel anahtar gerekmez; imzalı XML ve varsa karşı tarafın hata
+        mesajı yeterlidir. Bir özel anahtar bir kez paylaşıldığında
+        sertifikanın iptali gerekir.
+  - type: dropdown
+    id: yon
+    attributes:
+      label: Hangi yön
+      options:
+        - Ürettiğimiz imzayı karşı taraf reddediyor
+        - Geçerli bir imzayı doğrulayamıyoruz
+    validations: { required: true }
+  - type: input
+    id: karsi-taraf
+    attributes:
+      label: Karşı taraf
+      description: |
+        İmzayı reddeden ya da üreten uygulama. Bilinen adı yeterli.
+      placeholder: 'GİB portal / MA3 / xadesjs / DSS / Adobe Reader'
+    validations: { required: true }
+  - type: input
+    id: surum
+    attributes:
+      label: Kütüphane sürümü
+      placeholder: '0.1.0'
+    validations: { required: true }
+  - type: textarea
+    id: hata
+    attributes:
+      label: Karşı tarafın hata mesajı
+      description: Varsa birebir yapıştırın; özet değeri içeriyorsa onu da bırakın.
+      render: text
+  - type: textarea
+    id: imza
+    attributes:
+      label: İmzalı XML
+      description: |
+        Anonimleştirilmiş hâli. İmza bloğunun tamamı önemli:
+        `ds:SignedInfo`, `ds:Reference` dönüşümleri ve `ds:DigestValue`
+        alanları olmadan sorun teşhis edilemez.
+      render: xml
+    validations: { required: true }
+  - type: textarea
+    id: kod
+    attributes:
+      label: Bu imzayı üreten kod
+      description: Kullandığınız seçenekler — yerleşim, kanonikleştirme, politika.
+      render: typescript

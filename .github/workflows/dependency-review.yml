@@ -1,0 +1,31 @@
+name: Bağımlılık incelemesi
+
+# Bu paketin çalışma zamanı bağımlılığı YOKTUR ve öyle kalmalıdır. Bu iş
+# akışı, bir pull request'in bilinen açığı olan ya da uyumsuz lisanslı bir
+# bağımlılık getirmesini engeller.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: always
+
+      - name: Çalışma zamanı bağımlılığı eklenmediğini doğrula
+        run: |
+          # package.json'daki "dependencies" alanı boş kalmalı. Bu kısıt
+          # README'de ilan ediliyor; burada makine kontrol ediyor.
+          deps=$(node -p "JSON.stringify(require('./package.json').dependencies ?? {})")
+          echo "dependencies = $deps"
+          [ "$deps" = "{}" ] || { echo "HATA: çalışma zamanı bağımlılığı eklenmiş"; exit 1; }

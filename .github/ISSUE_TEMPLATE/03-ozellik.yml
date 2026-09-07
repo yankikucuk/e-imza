@@ -1,0 +1,34 @@
+name: Özellik önerisi
+description: Yeni bir yetenek veya mevcut bir yeteneğin genişletilmesi
+labels: ['tür: özellik', 'durum: inceleniyor']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Hangi problemi çözüyor
+      description: |
+        Çözümü değil problemi anlatın. "Şu fonksiyon eklensin" yerine
+        "şunu yapmam gerekiyor ve şu an şöyle yapmak zorundayım".
+    validations: { required: true }
+  - type: textarea
+    id: oneri
+    attributes:
+      label: Önerdiğiniz çözüm
+      description: Aklınızda bir API varsa yazın.
+      render: typescript
+  - type: textarea
+    id: alternatif
+    attributes:
+      label: Değerlendirdiğiniz alternatifler
+  - type: checkboxes
+    id: kisitlar
+    attributes:
+      label: Proje kısıtları
+      description: |
+        Bu kısıtlar tasarım kararıdır ve tartışmaya açık değildir; öneriniz
+        bunlarla uyumlu olmalı.
+      options:
+        - label: Öneri çalışma zamanı bağımlılığı gerektirmiyor
+          required: true
+        - label: Öneri XAdES imza üretimi/doğrulaması içermiyor (ayrı proje)
+          required: true

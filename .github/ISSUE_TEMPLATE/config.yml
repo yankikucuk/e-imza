@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Güvenlik açığı bildirimi
+    url: https://github.com/yankikucuk/e-imza/security/advisories/new
+    about: Güvenlik açıklarını herkese açık issue ile DEĞİL, bu özel kanaldan bildirin.
+  - name: Kullanım sorusu
+    url: https://github.com/yankikucuk/e-imza/discussions
+    about: Nasıl yapılır sorularını tartışmalarda sorun.
+  - name: GİB e-Belge kılavuzları
+    url: https://ebelge.gib.gov.tr/anasayfa.html
+    about: UBL-TR şemaları, paketleri ve resmî kılavuzların kaynağı.

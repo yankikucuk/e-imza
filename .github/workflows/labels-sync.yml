@@ -1,0 +1,130 @@
+name: Etiket senkronizasyonu
+
+# Etiketlerin tek kaynağı .github/labels.yml dosyasıdır. Bu iş akışı depodaki
+# etiketleri o dosyayla eşitler: eklenenler oluşturulur, adı/rengi/açıklaması
+# değişenler güncellenir, dosyadan silinenler depodan da silinir.
+#
+# Haftada bir çalışır ki elle eklenen etiketler zamanla birikmesin;
+# labels.yml değiştiğinde de anında çalışır.
+
+on:
+  schedule:
+    # Her pazartesi 06:00 UTC (Türkiye saatiyle 09:00)
+    - cron: '0 6 * * 1'
+  push:
+    branches: [main]
+    paths: ['.github/labels.yml']
+  workflow_dispatch:
+    inputs:
+      prune:
+        description: 'labels.yml içinde olmayan etiketleri sil'
+        type: boolean
+        default: true
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Etiketleri labels.yml ile eşitle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PRUNE: ${{ github.event_name != 'workflow_dispatch' && 'true' || inputs.prune }}
+        run: |
+          set -euo pipefail
+
+          # labels.yml -> JSON. Küçük ve sabit bir şema olduğu için harici bir
+          # YAML kütüphanesi yerine dar kapsamlı bir ayrıştırıcı kullanıyoruz;
+          # bu, iş akışının hiçbir bağımlılık kurmadan çalışmasını sağlıyor.
+          python3 - <<'PY' > /tmp/desired.json
+          import json, re, sys, pathlib
+
+          # Tırnak biçimine BAĞIMLI OLMAYAN ayrıştırıcı. Prettier bu dosyayı
+          # biçimlendirdiğinde çift tırnakları tekliye çeviriyor; çift tırnak
+          # bekleyen bir ayrıştırıcı o anda sessizce sıfır etiket okur ve
+          # aşağıdaki prune adımı depodaki TÜM etiketleri silerdi.
+          Q = r'''(?:"([^"]*)"|'([^']*)'|(.+?))'''
+          NAME = re.compile(r'-\s+name:\s*' + Q + r'\s*$')
+          FIELD = re.compile(r'(color|description):\s*' + Q + r'\s*$')
+          pick = lambda m, i: next(g for g in m.groups()[i:i+3] if g is not None)
+
+          items, cur = [], None
+          for line in pathlib.Path('.github/labels.yml').read_text().splitlines():
+              s = line.strip()
+              if not s or s.startswith('#'):
+                  continue
+              m = NAME.match(s)
+              if m:
+                  cur = {'name': pick(m, 0)}
+                  items.append(cur)
+                  continue
+              m = FIELD.match(s)
+              if m and cur is not None:
+                  cur[m.group(1)] = pick(m, 1)
+
+          # Güvenlik ağı: ayrıştırıcı herhangi bir nedenle bozulursa boş bir
+          # liste üretir ve prune her şeyi siler. Boş liste bir hata olarak
+          # ele alınır, sessiz veri kaybı olarak değil.
+          if not items:
+              print('HATA: labels.yml ayrıştırılamadı, 0 etiket okundu.', file=sys.stderr)
+              sys.exit(1)
+          eksik = [i['name'] for i in items if 'color' not in i]
+          if eksik:
+              print(f'HATA: renk alanı eksik etiketler: {eksik}', file=sys.stderr)
+              sys.exit(1)
+          print(f'{len(items)} etiket okundu.', file=sys.stderr)
+          json.dump(items, sys.stdout)
+          PY
+
+          gh api "repos/$REPO/labels?per_page=100" --paginate > /tmp/current.json
+
+          python3 - <<'PY' > /tmp/plan.sh
+          import json, os, shlex, pathlib
+          prune = os.environ.get('PRUNE') == 'true'
+          desired = json.loads(pathlib.Path('/tmp/desired.json').read_text())
+          current = {l['name']: l for l in json.loads(pathlib.Path('/tmp/current.json').read_text())}
+          want = {d['name'] for d in desired}
+          out = []
+          for d in desired:
+              name, color, desc = d['name'], d.get('color', 'cccccc'), d.get('description', '')
+              c = current.get(name)
+              if c is None:
+                  out.append(f"gh label create {shlex.quote(name)} --color {shlex.quote(color)} --description {shlex.quote(desc)}")
+              elif c.get('color') != color or (c.get('description') or '') != desc:
+                  out.append(f"gh label edit {shlex.quote(name)} --color {shlex.quote(color)} --description {shlex.quote(desc)}")
+          silinecek = [n for n in current if n not in want] if prune else []
+          # İkinci güvenlik ağı: tek seferde mevcut etiketlerin yarısından
+          # fazlasını silmek neredeyse her zaman bir yapılandırma hatasıdır,
+          # kasıtlı bir temizlik değil.
+          #
+          # Koruma YALNIZCA prune açıkken uygulanır. Aksi hâlde silme zaten
+          # yapılmayacakken plan üretimi düşer ve `prune: false` ile kaçış
+          # kapağı işe yaramaz. Bu, yeni bir depoda ilk çalıştırmada canlı
+          # olarak görüldü: GitHub'ın 10 varsayılan etiketi listede olmadığı
+          # için oran %100 çıkıyor ve iş akışı hiç ilerlemiyor.
+          if prune and current and len(silinecek) > len(current) / 2:
+              import sys
+              print(f'HATA: {len(silinecek)}/{len(current)} etiket silinecekti, durduruldu.', file=sys.stderr)
+              print('Kasıtlıysa iş akışını `prune: true` ile elle çalıştırın; ilk kurulumda',
+                    'önce `prune: false` ile etiketleri oluşturun.', file=sys.stderr)
+              sys.exit(1)
+          for name in silinecek:
+              out.append(f"PRUNE gh label delete {shlex.quote(name)} --yes")
+          print('\n'.join(out) or '# değişiklik yok')
+          PY
+
+          echo "── plan ──"; cat /tmp/plan.sh; echo "──────────"
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            case "$line" in
+              \#*) continue ;;
+              PRUNE\ *) [ "$PRUNE" = "true" ] || { echo "atlandı (prune kapalı): $line"; continue; }
+                        line="${line#PRUNE }" ;;
+            esac
+            echo "> $line"; eval "$line"
+          done < /tmp/plan.sh
