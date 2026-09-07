@@ -423,6 +423,10 @@ export const derSetOf = (...items: readonly Uint8Array[]): Uint8Array => {
   return encodeDer('universal', true, DerTag.SET, concat(...sorted))
 }
 
+/** `BOOLEAN` üretir. */
+export const derBoolean = (value: boolean): Uint8Array =>
+  encodeDer('universal', false, DerTag.BOOLEAN, new Uint8Array([value ? 0xff : 0x00]))
+
 /** `INTEGER` üretir. */
 export const derInteger = (value: bigint): Uint8Array => {
   if (value === 0n) return encodeDer('universal', false, DerTag.INTEGER, new Uint8Array([0]))

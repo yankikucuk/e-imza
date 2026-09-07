@@ -72,12 +72,45 @@ export {
   type SignOptions,
 } from './sign.js'
 
+/* ── Seviye yükseltme (XAdES-T) ────────────────────────────────────────── */
+export {
+  timestampRequest,
+  upgrade,
+  type TimestampRequestInput,
+  type TimestampTarget,
+  type UpgradeOptions,
+} from './upgrade.js'
+
+/* ── Zaman damgası (RFC 3161) ─────────────────────────────────────────── */
+export {
+  buildTimestampRequest,
+  parseTimestampResponse,
+  parseTstInfo,
+  verifyTimestampToken,
+  type TimestampRequestOptions,
+  type TimestampVerification,
+  type TstInfo,
+  type VerifyTimestampOptions,
+} from './pki/tsp.js'
+
+/* ── CMS (RFC 5652) ───────────────────────────────────────────────────── */
+export {
+  CmsOid,
+  parseCmsSignedData,
+  signedAttribute,
+  verifyCmsSigner,
+  type CmsSignedData,
+  type CmsSignerInfo,
+  type CmsVerification,
+} from './pki/cms.js'
+
 /* ── Doğrulama ────────────────────────────────────────────────────────── */
 export {
   verify,
   verifyAll,
   type ReferenceResult,
   type SignatureLevel,
+  type TimestampResult,
   type VerificationResult,
   type VerificationWarning,
   type VerifyOptions,

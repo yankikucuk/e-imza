@@ -8,6 +8,7 @@ import {
 import { fromBase64, timingSafeEqual } from './core/bytes.js'
 import { VerificationError } from './core/errors.js'
 import { readCertificate, type CertificateInfo } from './pki/certificate.js'
+import { verifyTimestampToken } from './pki/tsp.js'
 import {
   DIGEST_NODE_NAME,
   DIGEST_URI,
@@ -56,7 +57,22 @@ export interface VerificationWarning {
     | 'certificate-not-yet-valid-at-signing'
     | 'certificate-currently-expired'
     | 'signing-certificate-digest-mismatch'
+    | 'timestamp-invalid'
   readonly message: string
+}
+
+/** Belgedeki bir `xades:SignatureTimeStamp` öğesinin doğrulama sonucu. */
+export interface TimestampResult {
+  /** Öğenin `Id` özniteliği, varsa. */
+  readonly id?: string
+  /** Jeton kriptografik olarak doğrulandı ve BU imzayı damgalıyor mu. */
+  readonly valid: boolean
+  /** TSA'nın bildirdiği zaman; jeton okunabildiyse. */
+  readonly genTime?: Date
+  /** TSA'nın uyguladığı politika OID'i. */
+  readonly policyOid?: string
+  /** Geçersizse nedeni. */
+  readonly reason?: string
 }
 
 /** {@link verify} sonucu. */
@@ -72,6 +88,16 @@ export type VerificationResult =
       readonly references: readonly ReferenceResult[]
       readonly signatureAlgorithm: SignatureAlgorithm
       readonly canonicalization: C14nAlgorithm
+      /**
+       * Belgedeki zaman damgaları ve her birinin doğrulama sonucu.
+       *
+       * Doğrulanmayan bir damga {@link SignatureLevel} değerini
+       * YÜKSELTMEZ: belge "T seviyesi" iddia etse bile jeton tutmuyorsa
+       * seviye BES/EPES kalır ve nedeni `warnings` içinde yazar. Yapının
+       * iddiasını doğrulanmış gerçek gibi raporlamak, damganın var oluş
+       * amacını ortadan kaldırırdı.
+       */
+      readonly timestamps: readonly TimestampResult[]
       /** İmzayı geçersiz kılmayan, ama bilinmesi gereken durumlar. */
       readonly warnings: readonly VerificationWarning[]
     }
@@ -260,20 +286,92 @@ const verifySignature = (document: XmlDocument, signature: XmlElement): Verifica
   const signer = readCertificate(certificateDer)
   const properties = findSignedProperties(signature)
   const signingTime = properties === undefined ? undefined : readSigningTime(properties)
-  const warnings = collectWarnings(signer, properties, certificateDer, signingTime)
+  const warnings = [...collectWarnings(signer, properties, certificateDer, signingTime)]
+
+  const timestamps = verifyTimestamps(document, signature, signatureValueElement)
+  for (const timestamp of timestamps) {
+    if (!timestamp.valid) {
+      warnings.push({
+        code: 'timestamp-invalid',
+        message: `Zaman damgası doğrulanamadı: ${timestamp.reason ?? 'bilinmeyen sebep'}`,
+      })
+    }
+  }
 
   const signatureId = getAttributeValue(signature, 'Id')
   return {
     valid: true,
     ...(signatureId === undefined ? {} : { signatureId }),
-    level: detectLevel(signature, properties),
+    level: detectLevel(signature, properties, timestamps),
     signer,
     ...(signingTime === undefined ? {} : { signingTime }),
     references,
     signatureAlgorithm,
     canonicalization,
+    timestamps,
     warnings,
   }
+}
+
+/**
+ * Belgedeki `xades:SignatureTimeStamp` öğelerini doğrular.
+ *
+ * Her damga için iki bağ birlikte aranır: jetonun kriptografik geçerliliği
+ * ve jetonun BU `ds:SignatureValue`yu damgaladığı. İkincisi olmadan, başka
+ * bir belgeye ait geçerli bir jeton buraya taşınabilirdi.
+ *
+ * Kanonikleştirme algoritması damganın KENDİ `ds:CanonicalizationMethod`
+ * alanından okunur, imzanınkinden değil: ikisi farklı olabilir ve damgayı
+ * üreten hangisini yazdıysa doğrulayan da onu kullanmalıdır.
+ */
+const verifyTimestamps = (
+  document: XmlDocument,
+  signature: XmlElement,
+  signatureValueElement: XmlElement,
+): readonly TimestampResult[] => {
+  const results: TimestampResult[] = []
+  for (const element of walkElements(signature)) {
+    if (element.namespace !== Namespace.XADES || element.localName !== 'SignatureTimeStamp') {
+      continue
+    }
+    const id = getAttributeValue(element, 'Id')
+    const base = id === undefined ? {} : { id }
+
+    const encapsulated = childNamed(element, Namespace.XADES, 'EncapsulatedTimeStamp')
+    if (encapsulated === undefined) {
+      results.push({ ...base, valid: false, reason: 'xades:EncapsulatedTimeStamp yok.' })
+      continue
+    }
+
+    const method = childNamed(element, Namespace.SIGNATURE, 'CanonicalizationMethod')
+    const uri = method === undefined ? undefined : getAttributeValue(method, 'Algorithm')
+    let algorithm: C14nAlgorithm
+    try {
+      // Damgada algoritma yazılmamışsa XMLDSig'in örtük varsayılanı geçerli.
+      algorithm = uri === undefined ? 'c14n10' : c14nAlgorithmFromUri(uri)
+    } catch {
+      results.push({
+        ...base,
+        valid: false,
+        reason: `Desteklenmeyen kanonikleştirme: ${uri ?? ''}`,
+      })
+      continue
+    }
+
+    const stamped = canonicalizeToBytes(document, { algorithm, subset: signatureValueElement })
+    const outcome = verifyTimestampToken(fromBase64(textContent(encapsulated)), { data: stamped })
+    results.push(
+      outcome.valid
+        ? {
+            ...base,
+            valid: true,
+            genTime: outcome.info.genTime,
+            policyOid: outcome.info.policyOid,
+          }
+        : { ...base, valid: false, reason: outcome.reason },
+    )
+  }
+  return results
 }
 
 /**
@@ -452,8 +550,19 @@ const readSigningTime = (properties: XmlElement): Date | undefined => {
   return undefined
 }
 
-/** İmza seviyesini yapıya bakarak belirler. */
-const detectLevel = (signature: XmlElement, properties: XmlElement | undefined): SignatureLevel => {
+/**
+ * İmza seviyesini belirler.
+ *
+ * Yapıya bakılır, ama zaman damgası için yapı YETMEZ: en az bir damganın
+ * gerçekten doğrulanmış olması gerekir. Doğrulanmamış bir jetonla "T
+ * seviyesi" raporlamak, damganın var oluş amacını ortadan kaldırır — belge
+ * kendi hakkında ne iddia ederse etsin, seviye ancak kanıtlandığı kadardır.
+ */
+const detectLevel = (
+  signature: XmlElement,
+  properties: XmlElement | undefined,
+  timestamps: readonly TimestampResult[],
+): SignatureLevel => {
   if (properties === undefined) return 'XMLDSig'
   const names = new Set<string>()
   for (const element of walkElements(signature)) {
@@ -461,9 +570,10 @@ const detectLevel = (signature: XmlElement, properties: XmlElement | undefined):
       names.add(element.localName)
     }
   }
-  if (names.has('ArchiveTimeStamp')) return 'LTA'
-  if (names.has('CertificateValues') || names.has('RevocationValues')) return 'LT'
-  if (names.has('SignatureTimeStamp')) return 'T'
+  const timestamped = timestamps.some((timestamp) => timestamp.valid)
+  if (names.has('ArchiveTimeStamp') && timestamped) return 'LTA'
+  if ((names.has('CertificateValues') || names.has('RevocationValues')) && timestamped) return 'LT'
+  if (timestamped) return 'T'
   if (names.has('SignaturePolicyIdentifier')) return 'EPES'
   return 'BES'
 }

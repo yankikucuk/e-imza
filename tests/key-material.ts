@@ -45,6 +45,27 @@ export interface KeyMaterial {
   readonly withChain: KeyFixture
   /** Parolasız kap — boş parola kodlaması belirsizliğini sınar. */
   readonly emptyPassword: KeyFixture
+  /** Çevrimdışı zaman damgası otoritesi. */
+  readonly tsa: TsaFixture
+}
+
+/**
+ * Çevrimdışı bir RFC 3161 zaman damgası otoritesi.
+ *
+ * `openssl ts -reply` gerçek bir jeton üretebiliyor — ağ gerekmiyor. Bu,
+ * zaman damgası kodunu iki yönde birden sınamayı mümkün kılıyor: bizim
+ * ürettiğimiz isteği OpenSSL kabul ediyor mu, ve OpenSSL'in ürettiği jetonu
+ * biz doğrulayabiliyor muyuz.
+ */
+export interface TsaFixture {
+  /** Bir `TimeStampReq` için `TimeStampResp` üretir. */
+  readonly issue: (request: Uint8Array) => Uint8Array
+  /** TSA sertifikası (DER). */
+  readonly certificate: Uint8Array
+  /** TSA'yı imzalayan kök (DER). */
+  readonly rootCertificate: Uint8Array
+  /** TSA'nın varsayılan politika OID'i. */
+  readonly policyOid: string
 }
 
 const MODERN =
@@ -179,6 +200,81 @@ export const keyMaterial = (): KeyMaterial => {
       certificatePem: ucPem,
       label: 'OpenSSL 3 — parolasız',
     },
+    tsa: buildTsa(dir, at, run),
   }
   return cached
+}
+
+/** TSA politika OID'i — testin kendi ayırdığı, kayıtlı olmayan bir dal. */
+const TSA_POLICY_OID = '1.3.6.1.4.1.99999.1.1'
+
+/** Çevrimdışı bir zaman damgası otoritesi kurar. */
+const buildTsa = (
+  dir: string,
+  at: (name: string) => string,
+  run: (binary: string, args: readonly string[]) => void,
+): TsaFixture => {
+  // TSA sertifikası `timeStamping` genişletilmiş anahtar kullanımı TAŞIMALI;
+  // taşımayan bir sertifikayla üretilen jetonu uyumlu doğrulayıcılar
+  // reddeder.
+  writeFileSync(
+    at('tsa.ext'),
+    'basicConstraints=critical,CA:FALSE\n' +
+      'keyUsage=critical,digitalSignature\n' +
+      'extendedKeyUsage=critical,timeStamping\n',
+  )
+  // prettier-ignore
+  run(MODERN, ['req', '-new', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', at('tsa.key'), '-out', at('tsa.csr'),
+    '-subj', '/C=TR/O=e-imza Test/CN=e-imza Test TSA'])
+  // prettier-ignore
+  run(MODERN, ['x509', '-req', '-in', at('tsa.csr'), '-sha256', '-days', '1825',
+    '-CA', at('ca.crt'), '-CAkey', at('ca.key'), '-CAcreateserial',
+    '-extfile', at('tsa.ext'), '-out', at('tsa.crt')])
+
+  writeFileSync(
+    at('tsa.cnf'),
+    [
+      '[ tsa ]',
+      'default_tsa = tsa_config',
+      '[ tsa_config ]',
+      `serial = ${at('tsa.serial')}`,
+      'crypto_device = builtin',
+      `signer_cert = ${at('tsa.crt')}`,
+      `certs = ${at('ca.crt')}`,
+      `signer_key = ${at('tsa.key')}`,
+      'signer_digest = sha256',
+      `default_policy = ${TSA_POLICY_OID}`,
+      'digests = sha256, sha384, sha512',
+      'accuracy = secs:1',
+      'clock_precision_digits = 0',
+      'ordering = yes',
+      'tsa_name = yes',
+      'ess_cert_id_alg = sha256',
+      '',
+    ].join('\n'),
+  )
+  writeFileSync(at('tsa.serial'), '01\n')
+
+  const toDer = (pem: string, out: string): Uint8Array => {
+    run(MODERN, ['x509', '-in', at(pem), '-outform', 'DER', '-out', at(out)])
+    return new Uint8Array(readFileSync(at(out)))
+  }
+
+  let counter = 0
+  return {
+    issue: (request: Uint8Array): Uint8Array => {
+      counter += 1
+      const query = join(dir, `req-${String(counter)}.tsq`)
+      const reply = join(dir, `resp-${String(counter)}.tsr`)
+      writeFileSync(query, request)
+      // prettier-ignore
+      run(MODERN, ['ts', '-reply', '-config', at('tsa.cnf'),
+        '-queryfile', query, '-out', reply])
+      return new Uint8Array(readFileSync(reply))
+    },
+    certificate: toDer('tsa.crt', 'tsa.der'),
+    rootCertificate: toDer('ca.crt', 'ca.der'),
+    policyOid: TSA_POLICY_OID,
+  }
 }

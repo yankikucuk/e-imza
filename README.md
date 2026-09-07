@@ -1,10 +1,10 @@
 # @yankikucuk/e-imza
 
-> **Durum: 1.0.0 — kararlı.** XAdES-BES/EPES imzalama ve doğrulama,
-> kanonikleştirme, PKCS#12 kap okuma, ayrık imzalama ve paralel imza
-> hazır. Public API kararlıdır; kırıcı değişiklik ana sürüm yükseltir.
-> Zaman damgası (XAdES-T), CAdES, PAdES ve ASiC yol haritasında ve
-> hepsi katkısal — mevcut çağrılarınızı bozmayacaklar.
+> **Durum: 1.1.0 — kararlı.** XAdES-BES/EPES/**T** imzalama ve doğrulama,
+> RFC 3161 zaman damgası, CMS okuma, kanonikleştirme, PKCS#12 kap okuma,
+> ayrık imzalama ve paralel imza hazır. Public API kararlıdır; kırıcı
+> değişiklik ana sürüm yükseltir. LT, LTA, CAdES, PAdES ve ASiC yol
+> haritasında ve hepsi katkısal — mevcut çağrılarınızı bozmayacaklar.
 
 Elektronik imza için sıfır bağımlılıklı bir TypeScript kütüphanesi.
 UBL-TR e-Fatura ve e-İrsaliye belgelerini mali mühürle imzalar, imzalı
@@ -282,6 +282,83 @@ verifyAll(ikinci).every((sonuc) => sonuc.valid) // true
 
 UBL-TR e-Fatura tek imza bekler; orada varsayılan doğrudur.
 
+## Zaman damgası (XAdES-T)
+
+Zaman damgası, imzanın **belirli bir andan önce atıldığını** üçüncü bir
+tarafa kanıtlatır. Sertifikanız sonradan iptal edilse ya da süresi dolsa
+bile damga, o ana kadar geçerli olduğunu gösterir.
+
+Kütüphane TSA'ya **bağlanmaz**. İstek baytlarını üretir, jetonu yerleştirir;
+aradaki HTTP çağrısı sizin. Bir imza kütüphanesinin ne zaman ve nereye
+bağlandığı çağıranın kararı olmalı — hem güvenlik açısından, hem de bu
+akış çoğu zaman kuyruk ve yeniden deneme mantığı gerektirdiği için.
+
+```ts
+import { timestampRequest, upgrade, parseTimestampResponse, verify } from '@yankikucuk/e-imza'
+
+// 1. İsteği üret. Damgalanan şey, kanonikleştirilmiş ds:SignatureValue ÖĞESİDİR.
+const istek = timestampRequest({ xml: imzali })
+
+// 2. TSA'ya gönder — Kamu SM: http://tzd.kamusm.gov.tr
+const yanit = await fetch('http://tzd.kamusm.gov.tr', {
+  method: 'POST',
+  headers: { 'content-type': 'application/timestamp-query' },
+  body: istek,
+})
+const jeton = parseTimestampResponse(new Uint8Array(await yanit.arrayBuffer()))
+
+// 3. Yerleştir. Jetonun BU imzayı damgaladığı doğrulanır; tutmuyorsa hata verir.
+const damgali = upgrade({ xml: imzali, to: 'T', token: jeton })
+
+verify(damgali).level // 'T'
+```
+
+### Yükseltme imzayı neden bozmuyor
+
+Damga `xades:UnsignedProperties` altına yazılır ve o alt ağaç **hiçbir
+`ds:Reference` tarafından kapsanmaz**. Adı da bunu söylüyor: imzalanmamış
+özellikler. `SignedProperties`e bir şey eklemek imzayı anında geçersiz
+kılardı.
+
+Aynı imzaya birden çok damga eklenebilir; hepsi aynı `ds:SignatureValue`yu
+damgalar ve `verify()` her birini ayrı raporlar.
+
+### Seviye, iddiaya değil kanıta bakar
+
+`verify()` bulduğu her damgayı gerçekten doğrular: jeton kriptografik
+olarak geçerli mi, ve **bu** imzayı mı damgalıyor. Doğrulanmayan bir damga
+seviyeyi yükseltmez.
+
+```ts
+const sonuc = verify(supheliBelge)
+sonuc.level // 'BES' — belge <xades:SignatureTimeStamp> içerse bile
+sonuc.timestamps[0].valid // false
+sonuc.timestamps[0].reason // 'Jeton başka bir veriyi damgalamış — özet eşleşmiyor.'
+sonuc.warnings // [{ code: 'timestamp-invalid', … }]
+```
+
+Yapıya bakıp "T" demek damganın var oluş amacını ortadan kaldırırdı:
+`<xades:SignatureTimeStamp>` etiketini belgeye herkes yazabilir.
+
+### RFC 3161 katmanı ayrıca kullanılabilir
+
+Protokol XAdES'ten bağımsız olarak da çalışır — herhangi bir veriyi
+damgalamak ve doğrulamak için:
+
+```ts
+import { buildTimestampRequest, verifyTimestampToken } from '@yankikucuk/e-imza'
+
+const istek = buildTimestampRequest({ messageImprint: ozet, nonce: rastgele })
+// … TSA'ya gönder …
+const sonuc = verifyTimestampToken(jeton, { data: veri, nonce: rastgele })
+sonuc.valid && sonuc.info.genTime
+```
+
+`data` vermezseniz jeton kriptografik olarak doğrulanır ama **neyi
+damgaladığı bilinmez**; `nonce` vermezseniz yanıt tekrar oynatmaya açık
+kalır. İkisi de isteğe bağlı, ama ikisini birden atlamak damgayı büyük
+ölçüde anlamsızlaştırır.
+
 ## Kanonikleştirme
 
 Kanonikleştirici ayrıca kullanılabilir. **Canonical XML 1.0** ve
@@ -325,27 +402,32 @@ referansı **her zaman** belge ortasında bir alt kümedir.
 
 ### Bu sürümde var
 
-|                     |                                                     |
-| ------------------- | --------------------------------------------------- |
-| **XAdES**           | BES, EPES                                           |
-| **Yerleşim**        | `ubl-extension` (UBL-TR), `enveloped`               |
-| **Kanonikleştirme** | Canonical XML 1.0, Exclusive C14N, ±yorumlar        |
-| **Özet**            | SHA-256, SHA-384, SHA-512                           |
-| **İmza**            | RSA-PKCS1, RSA-PSS, ECDSA                           |
-| **Anahtar**         | PKCS#12 — PBES2/AES, 3DES, RC2-40/128, RC4-40/128   |
-| **Ayrık imzalama**  | `prepare()` / `complete()` — kart, HSM, uzak servis |
-| **Paralel imza**    | XPath Filter 2.0 ile                                |
+|                     |                                                            |
+| ------------------- | ---------------------------------------------------------- |
+| **XAdES**           | BES, EPES, **T**                                           |
+| **Zaman damgası**   | RFC 3161 — istek üretme, jeton doğrulama, seviye yükseltme |
+| **CMS**             | RFC 5652 `SignedData` okuma ve doğrulama                   |
+| **Yerleşim**        | `ubl-extension` (UBL-TR), `enveloped`                      |
+| **Kanonikleştirme** | Canonical XML 1.0, Exclusive C14N, ±yorumlar               |
+| **Özet**            | SHA-256, SHA-384, SHA-512                                  |
+| **İmza**            | RSA-PKCS1, RSA-PSS, ECDSA                                  |
+| **Anahtar**         | PKCS#12 — PBES2/AES, 3DES, RC2-40/128, RC4-40/128          |
+| **Ayrık imzalama**  | `prepare()` / `complete()` — kart, HSM, uzak servis        |
+| **Paralel imza**    | XPath Filter 2.0 ile                                       |
 
 ### Bu sürümde yok
 
-**XAdES-T / LT / LTA** — zaman damgası, sertifika ve iptal verisi gömme.
-RFC 3161 zaman damgası jetonu bir CMS `SignedData`'dır; ASN.1 katmanı
-zaten yazıldığı için sıradaki iş bu.
+**XAdES-LT / LTA** — sertifika zinciri ve iptal verisinin (CRL/OCSP)
+imzaya gömülmesi, ve o veriyi de kapsayan arşiv zaman damgası. Amaçları,
+imzayı sertifikaların süresi dolduktan sonra da doğrulanabilir kılmak.
+LT, OCSP ve CRL almayı gerektiriyor; API yine `timestampRequest()` /
+`upgrade()` deseninde olacak — istek baytlarını biz üretiriz, ağ çağrısını
+siz yaparsınız. LTA, LT'nin üstüne oturuyor.
 
 **CAdES, PAdES, ASiC** — sırasıyla ikili veri, PDF ve konteyner imzası.
-CAdES, XAdES-T için gereken CMS çekirdeğinin üstüne oturuyor; PAdES
-CAdES'i yeniden kullanıyor. Sıra bu yüzden doğal: **XAdES → XAdES-T →
-CAdES → PAdES → ASiC**.
+CAdES, XAdES-T ile birlikte yazılan CMS çekirdeğinin üstüne oturuyor;
+PAdES CAdES'i yeniden kullanıyor. Sıra bu yüzden doğal:
+**LT → LTA → CAdES → PAdES → ASiC**.
 
 **PKCS#11** — akıllı kart ve HSM'e doğrudan erişim. Bugün de
 kullanılabilirler: `prepare()` / `complete()` ile kendi PKCS#11
@@ -435,7 +517,7 @@ PKCS#12 çözümü bir imza akışı kurmadan sınanabiliyor.
 
 ```bash
 npm install
-npm test              # 258 test
+npm test              # 296 test
 npm run test:coverage
 npm run typecheck
 npm run lint

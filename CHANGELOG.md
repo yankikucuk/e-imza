@@ -3,6 +3,50 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [1.1.0] — 2026-09-07
+
+XAdES-T: RFC 3161 zaman damgası ve CMS okuma.
+
+### Eklendi
+
+- `timestampRequest()` — imza için RFC 3161 istek baytları. Damgalanan şey,
+  ETSI TS 101 903 §7.3 uyarınca kanonikleştirilmiş `ds:SignatureValue`
+  **öğesidir**, içindeki base64 metin değil
+- `upgrade({ to: 'T', token })` — jetonu `xades:UnsignedProperties` altına
+  yerleştirir. Jetonun bu imzayı damgaladığı önce doğrulanır; tutmuyorsa
+  hata verir
+- `verify()` artık bulduğu her damgayı **gerçekten doğruluyor**. Sonuç
+  `timestamps[]` alanıyla geldi
+- RFC 3161 katmanı ayrıca dışa açık: `buildTimestampRequest()`,
+  `parseTimestampResponse()`, `parseTstInfo()`, `verifyTimestampToken()`
+- CMS (RFC 5652) `SignedData` okuma ve doğrulama: `parseCmsSignedData()`,
+  `verifyCmsSigner()`, `signedAttribute()`
+
+### Değişti
+
+- **Doğrulanmayan bir zaman damgası artık seviyeyi yükseltmiyor.** Belge
+  `<xades:SignatureTimeStamp>` içerse bile jeton tutmuyorsa `level` değeri
+  `BES`/`EPES` kalıyor ve `warnings` içinde `timestamp-invalid` çıkıyor.
+  Yapıya bakıp "T" demek damganın var oluş amacını ortadan kaldırırdı —
+  o etiketi belgeye herkes yazabilir
+- `childNamed` ve `childrenNamed` ad alanı olarak `undefined` kabul ediyor;
+  ad alanısız öğeler artık bulunabiliyor
+
+### Doğrulama
+
+Zaman damgası kodu çevrimdışı bir OpenSSL TSA'sıyla **iki yönde** sınandı:
+ürettiğimiz `TimeStampReq`'i OpenSSL kabul edip jeton üretiyor, ve OpenSSL'in
+ürettiği jetonu bizim doğrulayıcımız kabul ediyor. Tek yönlü bir test
+yalnızca kendimizle tutarlı olduğumuzu gösterirdi.
+
+Yedi mutasyon denendi. Biri ilk turda yakalanmadı ve gerçek bir açıktı: CMS
+`messageDigest` denetimi kaldırılınca hiçbir test düşmüyordu. O denetim
+olmadan saldırgan, CMS imzasını bozmadan jetonun içeriğini — yani damganın
+bildirdiği **zamanı** — değiştirebilir; imza `signedAttrs` üzerinde
+hesaplandığı için `eContent`e dokunmak onu düşürmez. Testi eklendi.
+
+296 test; ifade %93,1, satır %95,6, fonksiyon %99,2.
+
 ## [1.0.0] — 2026-09-07
 
 İlk sürüm. XAdES imzalama ve doğrulama, kanonikleştirme, PKCS#12 kap okuma.
@@ -66,4 +110,5 @@ ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 - PKCS#11 yerleşik değil; `prepare()` / `complete()` ile dışarıdan bağlanır
 - Genel XPath desteklenmiyor ve planlanmıyor
 
+[1.1.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yankikucuk/e-imza/releases/tag/v1.0.0
