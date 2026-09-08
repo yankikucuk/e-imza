@@ -294,6 +294,7 @@ export {
   DerParseError,
   DoctypeNotAllowedError,
   EImzaError,
+  PdfSyntaxError,
   Pkcs12Error,
   SigningError,
   UnboundPrefixError,
@@ -301,6 +302,7 @@ export {
   VerificationError,
   XmlLimitExceededError,
   XmlSyntaxError,
+  ZipSyntaxError,
 } from './core/errors.js'
 
 /* ── Bayt yardımcıları ────────────────────────────────────────────────── */

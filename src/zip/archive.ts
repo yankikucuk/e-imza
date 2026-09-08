@@ -1,6 +1,7 @@
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
 
 import { concat, fromUtf8, utf8 } from '../core/bytes.js'
+import { ZipSyntaxError } from '../core/errors.js'
 
 import { crc32 } from './crc32.js'
 
@@ -154,7 +155,7 @@ export const readZip = (bytes: Uint8Array): readonly ZipEntry[] => {
   const entries: ZipEntry[] = []
   for (let i = 0; i < count; i += 1) {
     if (readU32(bytes, cursor) !== CENTRAL_SIGNATURE) {
-      throw new SyntaxError('ZIP: merkezî dizin girdisi bozuk.')
+      throw new ZipSyntaxError('merkezî dizin girdisi bozuk.')
     }
     const method = readU16(bytes, cursor + 10)
     const compressedSize = readU32(bytes, cursor + 20)
@@ -166,7 +167,7 @@ export const readZip = (bytes: Uint8Array): readonly ZipEntry[] => {
     const name = fromUtf8(bytes.subarray(cursor + 46, cursor + 46 + nameLength))
 
     if (readU32(bytes, localOffset) !== LOCAL_SIGNATURE) {
-      throw new SyntaxError(`ZIP: "${name}" için yerel başlık bulunamadı.`)
+      throw new ZipSyntaxError(`"${name}" için yerel başlık bulunamadı.`)
     }
     // Veri, yerel başlığın SONRASINDA başlar; yerel başlıktaki ad ve ek
     // alan uzunlukları merkezî dizindekinden farklı olabilir.
@@ -181,10 +182,10 @@ export const readZip = (bytes: Uint8Array): readonly ZipEntry[] => {
     } else if (method === 8) {
       data = new Uint8Array(inflateRawSync(Buffer.from(raw)))
     } else {
-      throw new SyntaxError(`ZIP: desteklenmeyen sıkıştırma yöntemi: ${String(method)}`)
+      throw new ZipSyntaxError(`desteklenmeyen sıkıştırma yöntemi: ${String(method)}`)
     }
     if (data.length !== uncompressedSize) {
-      throw new SyntaxError(`ZIP: "${name}" açıldığında beklenen boyutta değil.`)
+      throw new ZipSyntaxError(`"${name}" açıldığında beklenen boyutta değil.`)
     }
 
     entries.push({ name, data, stored: method === 0 })
@@ -200,13 +201,13 @@ export const readZip = (bytes: Uint8Array): readonly ZipEntry[] => {
  */
 const findEndOfCentralDirectory = (bytes: Uint8Array): number => {
   const minimum = 22
-  if (bytes.length < minimum) throw new SyntaxError('ZIP: dosya çok küçük.')
+  if (bytes.length < minimum) throw new ZipSyntaxError('dosya çok küçük.')
   // Yorum en fazla 65535 bayt olabilir.
   const limit = Math.max(0, bytes.length - minimum - 0xffff)
   for (let i = bytes.length - minimum; i >= limit; i -= 1) {
     if (readU32(bytes, i) === EOCD_SIGNATURE) return i
   }
-  throw new SyntaxError('ZIP: merkezî dizin sonu bulunamadı.')
+  throw new ZipSyntaxError('merkezî dizin sonu bulunamadı.')
 }
 
 /**
