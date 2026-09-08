@@ -85,7 +85,7 @@ describe('bozuk girdi kütüphane hatası veriyor', () => {
   it.each(der)('DER: %s', (_ad, girdi) => {
     kutuphaneHatasi(() => readCertificate(girdi))
     kutuphaneHatasi(() => verifyTimestampToken(girdi, { data: Uint8Array.from([1]) }))
-    kutuphaneHatasi(() => cadesVerify(girdi, { data: Uint8Array.from([1]) }))
+    kutuphaneHatasi(() => cadesVerify(girdi, { content: Uint8Array.from([1]) }))
     kutuphaneHatasi(() => loadPkcs12(girdi, 'parola'))
   })
 
