@@ -3,7 +3,7 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
-## [Yayımlanmadı]
+## [1.8.0] — 2026-09-08
 
 Kod denetimi. İki bulgu da düşmanca girdiyle üretildi, sonra düzeltildi.
 
@@ -32,12 +32,14 @@ Kod denetimi. İki bulgu da düşmanca girdiyle üretildi, sonra düzeltildi.
   ya başarılı olur ya `EImzaError` verir; ne yabancı bir hata ne de asılma
 - PDF nesne derinliği için gerileme testleri
 
-### Kırıcı değişiklik
+### Dikkat
 
 `readPdf()`, `readZip()` ve bunları kullanan yollar artık `SyntaxError`
-yerine `PdfSyntaxError` / `ZipSyntaxError` fırlatıyor. `e.message` okuyan ya
-da `EImzaError` yakalayan kod etkilenmez; yalnızca `e instanceof SyntaxError`
-yazan kod güncellenmeli.
+yerine `PdfSyntaxError` / `ZipSyntaxError` fırlatıyor. Her ikisi de
+`EImzaError` soyundan; `e.message` okuyan ya da `EImzaError` yakalayan kod
+etkilenmez. Yalnızca `e instanceof SyntaxError` yazan kod güncellenmeli —
+belgelenmiş yol bu olmadığı ve hata ağacı sözü zaten bunu vaat ettiği için
+küçük sürüm olarak yayımlanıyor.
 
 ## [1.7.1] — 2026-09-07
 
