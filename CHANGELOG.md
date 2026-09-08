@@ -3,6 +3,42 @@
 Bu dosya [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) biçimini
 ve [Semantic Versioning](https://semver.org/lang/tr/) kurallarını izler.
 
+## [Yayımlanmadı]
+
+Kod denetimi. İki bulgu da düşmanca girdiyle üretildi, sonra düzeltildi.
+
+### Düzeltildi
+
+- **Aşırı iç içe bir PDF ayrıştırıcının çağrı yığınını tüketiyordu.** Yaklaşık
+  5.000 düzey iç içe dizi ya da sözlük içeren bir belge `readPdf()` çağrısını
+  `RangeError: Maximum call stack size exceeded` ile düşürüyordu — yani
+  saldırganın hazırladığı bir dosya, doğrulayıcıyı kütüphanenin kendi hata
+  yolundan çıkarabiliyordu. XML ayrıştırıcısında zaten olan derinlik sınırı
+  artık PDF tarafında da var (200 düzey, aynı değer) ve aşıldığında
+  yakalanabilir bir ayrıştırma hatası veriyor
+- **PDF ve ZIP ayrıştırıcıları kütüphane ağacının dışında hata fırlatıyordu.**
+  `errors.ts` tek bir söz veriyor: fırlatılan her hata `EImzaError` soyundan
+  gelir, çünkü "girdi bozuk" ile "kodda bug var" karışırsa geçersiz bir imza
+  sessizce yutulabilir. Oysa bu iki ayrıştırıcı 28 yerde yerleşik
+  `SyntaxError` fırlatıyordu — üstelik tam da güvenilmeyen baytların
+  okunduğu yerlerde
+
+### Eklendi
+
+- `PdfSyntaxError` ve `ZipSyntaxError`; ikisi de `EImzaError` soyundan.
+  Diğer hata sınıfları gibi ön eki kendileri ekliyor
+- Bozuk girdi test paketi: kesilmiş, uzunluğu yalan söyleyen, aşırı derin ve
+  rastgele baytlarla DER, XML ve PDF giriş noktaları. Sözleşme tek cümle —
+  ya başarılı olur ya `EImzaError` verir; ne yabancı bir hata ne de asılma
+- PDF nesne derinliği için gerileme testleri
+
+### Kırıcı değişiklik
+
+`readPdf()`, `readZip()` ve bunları kullanan yollar artık `SyntaxError`
+yerine `PdfSyntaxError` / `ZipSyntaxError` fırlatıyor. `e.message` okuyan ya
+da `EImzaError` yakalayan kod etkilenmez; yalnızca `e instanceof SyntaxError`
+yazan kod güncellenmeli.
+
 ## [1.7.1] — 2026-09-07
 
 Yalnızca belge. Kod değişmedi.

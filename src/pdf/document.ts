@@ -1,6 +1,7 @@
 import { inflateSync } from 'node:zlib'
 
 import { fromUtf8, utf8 } from '../core/bytes.js'
+import { PdfSyntaxError } from '../core/errors.js'
 
 import { dictEntry, lastIndexOfSequence, PdfReader, type PdfObject } from './object.js'
 
@@ -40,14 +41,14 @@ export interface PdfDocument {
  */
 export const readPdf = (bytes: Uint8Array): PdfDocument => {
   if (fromUtf8(bytes.subarray(0, 5)) !== '%PDF-') {
-    throw new SyntaxError('PDF: dosya %PDF- ile başlamıyor.')
+    throw new PdfSyntaxError('dosya %PDF- ile başlamıyor.')
   }
 
   const marker = lastIndexOfSequence(bytes, utf8('startxref'))
-  if (marker === -1) throw new SyntaxError('PDF: startxref bulunamadı.')
+  if (marker === -1) throw new PdfSyntaxError('startxref bulunamadı.')
   const reader = new PdfReader(bytes, marker + 'startxref'.length)
   const startXref = Number.parseInt(reader.readToken(), 10)
-  if (!Number.isFinite(startXref)) throw new SyntaxError('PDF: startxref değeri okunamadı.')
+  if (!Number.isFinite(startXref)) throw new PdfSyntaxError('startxref değeri okunamadı.')
 
   const xref = new Map<number, XrefEntry>()
   const trailer = new Map<string, PdfObject>()
@@ -79,7 +80,7 @@ export const readPdf = (bytes: Uint8Array): PdfDocument => {
   }
 
   if (trailer.has('Encrypt')) {
-    throw new SyntaxError(
+    throw new PdfSyntaxError(
       'PDF şifreli. İmza eklemek belgeyi çözmeyi gerektirir; bu kütüphane şifreli PDF açmaz.',
     )
   }
@@ -113,10 +114,10 @@ const readXrefSection = (bytes: Uint8Array, offset: number): XrefSection => {
   reader.readToken()
   reader.readToken()
   if (!reader.consume('obj')) {
-    throw new SyntaxError(`PDF: konum ${String(offset)} çapraz başvuru içermiyor.`)
+    throw new PdfSyntaxError(`konum ${String(offset)} çapraz başvuru içermiyor.`)
   }
   const object = reader.readObject()
-  if (object.kind !== 'stream') throw new SyntaxError('PDF: çapraz başvuru akışı bekleniyordu.')
+  if (object.kind !== 'stream') throw new PdfSyntaxError('çapraz başvuru akışı bekleniyordu.')
   return readXrefStream(object)
 }
 
@@ -150,11 +151,11 @@ const readXrefTable = (reader: PdfReader): XrefSection => {
 
 /** PDF 1.5+ çapraz başvuru akışı. */
 const readXrefStream = (stream: PdfObject): XrefSection => {
-  if (stream.kind !== 'stream') throw new SyntaxError('PDF: akış bekleniyordu.')
+  if (stream.kind !== 'stream') throw new PdfSyntaxError('akış bekleniyordu.')
   const data = streamData(stream)
 
   const widthsEntry = stream.entries.get('W')
-  if (widthsEntry?.kind !== 'array') throw new SyntaxError('PDF: /W alanı yok.')
+  if (widthsEntry?.kind !== 'array') throw new PdfSyntaxError('/W alanı yok.')
   const widths = widthsEntry.items.map((item) => (item.kind === 'number' ? item.value : 0))
 
   const sizeEntry = stream.entries.get('Size')
@@ -208,7 +209,7 @@ const readXrefStream = (stream: PdfObject): XrefSection => {
  * olurdu.
  */
 export const streamData = (stream: PdfObject): Uint8Array => {
-  if (stream.kind !== 'stream') throw new SyntaxError('PDF: akış bekleniyordu.')
+  if (stream.kind !== 'stream') throw new PdfSyntaxError('akış bekleniyordu.')
   const filter = stream.entries.get('Filter')
   const names =
     filter === undefined
@@ -222,7 +223,7 @@ export const streamData = (stream: PdfObject): Uint8Array => {
   let data = stream.raw
   for (const name of names) {
     if (name !== 'FlateDecode') {
-      throw new SyntaxError(`PDF: desteklenmeyen akış süzgeci: ${name}`)
+      throw new PdfSyntaxError(`desteklenmeyen akış süzgeci: ${name}`)
     }
     data = new Uint8Array(inflateSync(Buffer.from(data)))
   }
@@ -342,9 +343,9 @@ export const catalog = (
   document: PdfDocument,
 ): { readonly reference: number; readonly object: PdfObject } => {
   const root = document.trailer.get('Root')
-  if (root?.kind !== 'ref') throw new SyntaxError('PDF: /Root dolaylı başvuru değil.')
+  if (root?.kind !== 'ref') throw new PdfSyntaxError('/Root dolaylı başvuru değil.')
   const object = getObject(document, root.number)
-  if (object === undefined) throw new SyntaxError('PDF: katalog çözülemedi.')
+  if (object === undefined) throw new PdfSyntaxError('katalog çözülemedi.')
   return { reference: root.number, object }
 }
 
@@ -362,7 +363,7 @@ export const firstPage = (
   document: PdfDocument,
 ): { readonly reference: number; readonly object: PdfObject } => {
   const pagesEntry = dictEntry(catalog(document).object, 'Pages')
-  if (pagesEntry?.kind !== 'ref') throw new SyntaxError('PDF: /Pages bulunamadı.')
+  if (pagesEntry?.kind !== 'ref') throw new PdfSyntaxError('/Pages bulunamadı.')
 
   const descend = (reference: number, depth: number): number | undefined => {
     if (depth > 64) return undefined
@@ -381,8 +382,8 @@ export const firstPage = (
   }
 
   const reference = descend(pagesEntry.number, 0)
-  if (reference === undefined) throw new SyntaxError('PDF: sayfa bulunamadı.')
+  if (reference === undefined) throw new PdfSyntaxError('sayfa bulunamadı.')
   const object = getObject(document, reference)
-  if (object === undefined) throw new SyntaxError('PDF: sayfa çözülemedi.')
+  if (object === undefined) throw new PdfSyntaxError('sayfa çözülemedi.')
   return { reference, object }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { fromUtf8, toHex, utf8 } from '../core/bytes.js'
+import { PdfSyntaxError } from '../core/errors.js'
 
 import {
   dictEntry,
@@ -164,7 +165,7 @@ describe('bozuk girdi', () => {
   ]
   for (const [name, text] of bad) {
     it(`reddediliyor: ${name}`, () => {
-      expect(() => read(text)).toThrow(SyntaxError)
+      expect(() => read(text)).toThrow(PdfSyntaxError)
     })
   }
 })
@@ -187,5 +188,32 @@ describe('bayt arama', () => {
 describe('dictEntry', () => {
   it('sözlük olmayan nesnede undefined dönüyor', () => {
     expect(dictEntry({ kind: 'number', value: 1 }, 'A')).toBeUndefined()
+  })
+})
+
+/**
+ * İç içelik sınırı olmadan, saldırganın hazırladığı bir belge ayrıştırıcının
+ * çağrı yığınını tüketiyordu: `RangeError: Maximum call stack size exceeded`.
+ * Sınır, bunu yakalanabilir bir sözdizimi hatasına çeviriyor.
+ */
+describe('iç içelik sınırı', () => {
+  const oku = (metin: string): PdfObject => new PdfReader(utf8(metin)).readObject()
+
+  it('makul derinlikte dizi ve sözlük okunuyor', () => {
+    expect(oku('['.repeat(150) + ']'.repeat(150)).kind).toBe('array')
+    expect(oku('<< /A '.repeat(150) + '1' + ' >>'.repeat(150)).kind).toBe('dict')
+  })
+
+  it('aşırı derin dizi yığını taşırmak yerine hata veriyor', () => {
+    expect(() => oku('['.repeat(50_000) + ']'.repeat(50_000))).toThrow(/iç içe/)
+  })
+
+  it('aşırı derin sözlük yığını taşırmak yerine hata veriyor', () => {
+    expect(() => oku('<< /A '.repeat(50_000) + '1' + ' >>'.repeat(50_000))).toThrow(/iç içe/)
+  })
+
+  it('yan yana derin yapılar sınırı tüketmiyor', () => {
+    const bir = '['.repeat(150) + ']'.repeat(150)
+    expect(oku(`[${bir} ${bir} ${bir}]`).kind).toBe('array')
   })
 })

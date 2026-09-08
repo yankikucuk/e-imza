@@ -14,6 +14,27 @@ export abstract class EImzaError extends Error {
   }
 }
 
+/* ── PDF ve ZIP ayrıştırma ────────────────────────────────────────────── */
+
+/**
+ * PDF okunamadı: yapısı bozuk ya da beklenen alan yok.
+ *
+ * Bir imza doğrulanırken PDF dışarıdan gelir; bozuk bir belgeyi ayırt etmek
+ * çağıranın işi olduğu için bu da kütüphanenin kendi hata ağacında.
+ */
+export class PdfSyntaxError extends EImzaError {
+  constructor(detail: string) {
+    super(`PDF: ${detail}`)
+  }
+}
+
+/** ZIP konteyneri okunamadı — ASiC paketleri bu biçimde taşınır. */
+export class ZipSyntaxError extends EImzaError {
+  constructor(detail: string) {
+    super(`ZIP: ${detail}`)
+  }
+}
+
 /* ── XML ayrıştırma ───────────────────────────────────────────────────── */
 
 /** Belge iyi-biçimli değil. */

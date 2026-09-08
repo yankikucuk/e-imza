@@ -1,4 +1,5 @@
 import { fromUtf8, utf8 } from '../core/bytes.js'
+import { PdfSyntaxError } from '../core/errors.js'
 
 /**
  * PDF nesne modeli ve ayrıştırıcısı.
@@ -49,9 +50,18 @@ const isDelimiter = (byte: number): boolean =>
 /** Düzenli karakter: ne boşluk ne sınırlayıcı. */
 const isRegular = (byte: number): boolean => !isWhitespace(byte) && !isDelimiter(byte)
 
+/**
+ * En fazla kaç düzey iç içe dizi ve sözlük okunur.
+ *
+ * Gerçek belgeler bir avuç düzeyi geçmez; sınır, özyinelemenin çağrı yığınını
+ * tüketmesini engellemek için var. XML ayrıştırıcısıyla aynı değer kullanılıyor.
+ */
+const MAX_DEPTH = 200
+
 /** PDF nesnesi okuyan imleç. */
 export class PdfReader {
   private position: number
+  private depth = 0
 
   constructor(
     private readonly bytes: Uint8Array,
@@ -127,7 +137,7 @@ export class PdfReader {
   readObject(): PdfObject {
     this.skipWhitespace()
     const byte = this.bytes[this.position]
-    if (byte === undefined) throw new SyntaxError('PDF: beklenmedik dosya sonu.')
+    if (byte === undefined) throw new PdfSyntaxError('beklenmedik dosya sonu.')
 
     if (byte === 0x2f) return this.readName()
     if (byte === 0x28) return this.readLiteralString()
@@ -165,7 +175,7 @@ export class PdfReader {
     }
 
     this.position = start
-    throw new SyntaxError(`PDF: tanınmayan nesne (konum ${String(start)}): "${token}"`)
+    throw new PdfSyntaxError(`tanınmayan nesne (konum ${String(start)}): "${token}"`)
   }
 
   /** `/Ad` — `#XX` kaçışları çözülür. */
@@ -252,27 +262,38 @@ export class PdfReader {
 
   /** `[…]` */
   private readArray(): PdfObject {
+    this.enter()
     this.position += 1
     const items: PdfObject[] = []
     for (;;) {
       this.skipWhitespace()
-      if (this.position >= this.bytes.length) throw new SyntaxError('PDF: kapanmamış dizi.')
+      if (this.position >= this.bytes.length) throw new PdfSyntaxError('kapanmamış dizi.')
       if ((this.bytes[this.position] ?? 0) === 0x5d) {
         this.position += 1
         break
       }
       items.push(this.readObject())
     }
+    this.depth -= 1
     return { kind: 'array', items }
+  }
+
+  /** İç içe bir yapıya girer; sınır aşılırsa okuma burada durur. */
+  private enter(): void {
+    this.depth += 1
+    if (this.depth > MAX_DEPTH) {
+      throw new PdfSyntaxError(`nesneler ${String(MAX_DEPTH)} düzeyden fazla iç içe.`)
+    }
   }
 
   /** `<<…>>` ve ardından `stream` gelirse akış. */
   private readDictionaryOrStream(): PdfObject {
+    this.enter()
     this.position += 2
     const entries = new Map<string, PdfObject>()
     for (;;) {
       this.skipWhitespace()
-      if (this.position >= this.bytes.length) throw new SyntaxError('PDF: kapanmamış sözlük.')
+      if (this.position >= this.bytes.length) throw new PdfSyntaxError('kapanmamış sözlük.')
       if (
         (this.bytes[this.position] ?? 0) === 0x3e &&
         (this.bytes[this.position + 1] ?? 0) === 0x3e
@@ -281,9 +302,10 @@ export class PdfReader {
         break
       }
       const key = this.readObject()
-      if (key.kind !== 'name') throw new SyntaxError('PDF: sözlük anahtarı ad olmalı.')
+      if (key.kind !== 'name') throw new PdfSyntaxError('sözlük anahtarı ad olmalı.')
       entries.set(key.value, this.readObject())
     }
+    this.depth -= 1
 
     const save = this.position
     this.skipWhitespace()
@@ -299,7 +321,7 @@ export class PdfReader {
         end = start + lengthEntry.value
       } else {
         end = indexOfSequence(this.bytes, utf8('endstream'), start)
-        if (end === -1) throw new SyntaxError('PDF: kapanmamış akış.')
+        if (end === -1) throw new PdfSyntaxError('kapanmamış akış.')
         // Sondaki satır sonu akışın parçası değil.
         if ((this.bytes[end - 1] ?? 0) === 0x0a) end -= 1
         if ((this.bytes[end - 1] ?? 0) === 0x0d) end -= 1
